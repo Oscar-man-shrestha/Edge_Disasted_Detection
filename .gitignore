@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+
+# data and models stay out of git (stock-footage licences, size, device-specific)
+data/*
+!data/.gitkeep
+!data/flight_path.csv
+weights/*
+!weights/.gitkeep
+*.engine
+*.onnx
+
+# runtime output
+ground_station/received/
+*.db
+*.log
