@@ -25,8 +25,11 @@ Stage 2 scheduler                  every triggered frame until confirmed, then e
 Stage 2 detector (YOLO)            YOLOv8n → person    +    fire_smoke.pt → fire, smoke
    │
    ▼
-GPS tag (NEO-M8N, or simulated) → SQLite buffer on the drone → HTTP POST every 5 s → Ground station
-                                                                                    (map + table + SQLite)
+GPS tag (NEO-M8N, or simulated) → SQLite buffer on the drone
+   │
+   ▼  live link over the Nano's Wi-Fi hotspot (drone finds the laptop by itself)
+Ground station dashboard: live map + flight trail · camera preview · drone health ·
+                          alert workflow · CSV / GeoJSON / KML / printable report
 ```
 
 The idea is **adaptive compute**: the heavy YOLO models run only when the cheap gate sees something. This saves time and power on the Jetson.
@@ -87,6 +90,23 @@ The idea is **adaptive compute**: the heavy YOLO models run only when the cheap 
 | 17 | **Automated tests:** 28 pytest tests | Teammates can check changes without the models or the board | `tests/`, `pytest.ini` |
 | 18 | **Hardware guide** for our parts: power, GPS wiring, webcam, bring-up order, troubleshooting | | `JETSON.md` |
 
+### Round 4: top-class ground station and live link
+
+Design: [spec](docs/superpowers/specs/2026-11-05-ground-station-design.md) · [implementation plan](docs/superpowers/plans/2026-11-05-ground-station-v2.md)
+
+| # | What | Files |
+|---|---|---|
+| 19 | **Zero-config link:** the station announces itself on the Wi-Fi; the drone finds it, so there's no IP to type (`EDGE_SERVER_URL=auto`) | `ground_station/discovery.py`, `link.py` |
+| 20 | **Live drone link from one background thread:** status update every 1 s (GPS, pipeline, board temperatures, loads and power), camera preview every 1.5 s, alerts every 2 s with store-and-forward. The camera loop never waits on the network. | `link.py`, `system_stats.py` |
+| 21 | **Live dashboard:** LIVE / LINK LOST light, drone arrow pointing its heading with a flight trail, alert markers (P/F/S), camera preview with a YOLO ACTIVE badge, drone health cards, 60 s sparklines, pop-ups and sounds for new alerts, works on a phone | `ground_station/templates/index.html`, `static/` |
+| 22 | **Alert workflow:** new → acknowledged → resolved, notes, filters, full-size snapshots, copy coordinates / open in Google Maps | `ground_station/store.py`, `app.py` |
+| 23 | **Missions and exports:** CSV, GeoJSON, KML (Google Earth) and a printable report (save as PDF) | `ground_station/exports.py`, `templates/report.html` |
+| 24 | **Works fully offline:** Leaflet stored in the repo, and map tiles saved on first view or downloaded ahead with `tiles.py prefetch` | `ground_station/tiles.py`, `static/vendor/leaflet/` |
+| 25 | **Station keeps everything after a restart** (SQLite); your existing `station.db` is upgraded automatically | `ground_station/store.py` |
+| 26 | **Nano Wi-Fi hotspot** `DRONE-EDGE` for the field | `jetson/hotspot.sh` |
+| 27 | **Simulated demo drone**, to show the whole system without the Jetson | `ground_station/demo_drone.py` |
+| 28 | Optional shared key (`GS_LINK_KEY` / `EDGE_LINK_KEY`) | |
+
 ### All settings (environment variables)
 
 | Variable | Default | Meaning |
@@ -94,18 +114,20 @@ The idea is **adaptive compute**: the heavy YOLO models run only when the cheap 
 | `EDGE_SOURCE` | `data/mixed_test.mp4` | video, `0` (USB webcam), `csi`, GStreamer pipeline, or MJPEG URL |
 | `EDGE_DEVICE` | `cpu` | `0` = Jetson GPU |
 | `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | `.pt`, `.engine` or `.onnx` |
-| `EDGE_SERVER_URL` | `http://localhost:5000/alert` | ground station |
+| `EDGE_SERVER_URL` | `auto` | finds the station by its beacon, or a fixed `http://host:5000` |
+| `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | name on the dashboard / shared key |
 | `EDGE_GPS` | `sim` | `sim`, `nmea` (M8N) or `mavlink` |
 | `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / auto | M8N serial port |
 | `EDGE_MOTION_COMP` | `1` | Stage 1 motion compensation |
 | `EDGE_STAGE2_EVERY_N` | `3` | Stage 2 frequency while confirmed (`1` = old behaviour) |
-| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `127.0.0.1` / `5000` / `ground_station/received` | ground station |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5000` / `ground_station/received` | ground station |
+| `GS_LINK_KEY` / `GS_BEACON_TARGETS` | none / `255.255.255.255,10.42.0.255` | required drone key / where the beacon is sent |
 
 ---
 
 ## 4. How it was tested
 
-**Automated: `python -m pytest`, 28 of 28 pass** (laptop, no models needed)
+**Automated: `python -m pytest`, 80 of 80 pass** (laptop, no models needed)
 
 | Area | What the tests check |
 |---|---|
@@ -115,12 +137,17 @@ The idea is **adaptive compute**: the heavy YOLO models run only when the cheap 
 | GPS (sim) | start, end and hold position; speed |
 | Power | parsing `tegrastats` output from JetPack 4 and JetPack 5; energy calculation; still works with no sensor |
 | Alert link | offline buffering; cooldown; person threshold; **real HTTP to the ground station**: priority order, missing snapshot, alert with no GPS fix, resends ignored, alerts kept after a station restart |
+| Station | upgrading an old `station.db`; missions; alert status changes and notes; flight-trail thinning; status-update validation (bad JSON, missing GPS, drone clock 10 h off); preview size and type limits; shared-key 401s; path-traversal 404s; exports (CSV round trip, GeoJSON, KML parses as XML); report numbers; tile cache (cached, fetched once, offline 404, bad coordinates) |
+| Live link | finding the station by its beacon; ignoring a second station while the first is alive; forgetting it after 10 s; telemetry, preview and alert delivery; offline buffering where 200 frames cost < 50 ms; shared key; preview size and boxes; **the real `run_pipeline.py` end to end against a real station** |
+| Board health | temperatures, GPU load, RAM and CPU load from a fake Jetson `/sys` and `/proc`; nothing breaks on a laptop |
 
-**Manual (laptop):**
+**Manual, in the browser (laptop):** station plus `demo_drone.py` finding it automatically. Checked: LIVE, the moving drone and trail, preview with the YOLO badge, alerts with pop-ups, Acknowledge (card, marker and tab title update), all four exports, LINK LOST within 4 s of stopping the drone, the no-GPS run (NO FIX shown, no console errors), every browser request going only to the station, tiles saved to disk, phone width (375 px) with no overflow, and a station restart keeping its alerts with the drone reconnecting by itself.
+
+**Manual (laptop, earlier rounds):**
 - Full `run_pipeline.py` and `benchmark.py` on a made-up video with a stand-in for YOLO: alerts raised, the scheduler skipped 6 of 10 Stage 2 runs, and buffered alerts did not stall the loop.
 - Camera bridge: served a video as an MJPEG stream, which `FrameSource` read as a camera.
 
-**Not tested yet (needs the board or the hardware):** real YOLO and TensorRT on the Nano, power readings, the Lenovo webcam on the Nano, the M8N wired to the UART, Docker and systemd on the board, Stage 1 motion compensation on real drone footage, and Stage 1 speed on the Nano's CPU (about 8 ms on the laptop).
+**Not tested yet (needs the board or the hardware):** the hotspot script and discovery from inside Docker on the Nano, real YOLO and TensorRT on the Nano, power readings, the Lenovo webcam on the Nano, the M8N wired to the UART, Docker and systemd on the board, Stage 1 motion compensation on real drone footage, and Stage 1 speed on the Nano's CPU (about 8 ms on the laptop).
 
 ---
 
@@ -151,4 +178,6 @@ EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weigh
 | Medium | Stress-test the colour gate on orange terrain, sunsets and red roofs | Risk of false triggers |
 | Medium | Test person detection on aerial footage | The YOLOv8n COCO model is weak on small, top-down people. May need a model fine-tuned on aerial images (e.g. VisDrone). |
 | Low | Use the compass for heading | Lets you estimate where a detection is on the ground, not just where the drone is |
-| Low | Alerts are sent over HTTP with no authentication | Fine on a private link; add a shared key before any public network |
+| High | **Field test of the link:** hotspot, laptop dashboard, the Nano in Docker | Follow JETSON.md sections 6–7 |
+| Low | Several drones on one dashboard | Each record already stores which drone sent it; the UI follows the latest one |
+| Low | HTTPS | The link uses WPA2 Wi-Fi plus an optional shared key, with no TLS |

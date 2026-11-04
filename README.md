@@ -5,7 +5,7 @@ A cheap OpenCV check (Stage 1) runs on every sampled frame; the heavy YOLO model
 (Stage 2) run only when Stage 1 flags something. Alerts are tagged with GPS, stored
 locally (SQLite), and forwarded to a ground station when a link exists.
 
-camera -> Stage 1 gate -> Stage 2 YOLO -> GPS tag -> SQLite store -> Flask ground station
+camera -> Stage 1 gate -> Stage 2 YOLO -> GPS tag -> SQLite store -> live link -> ground station dashboard
 
 Current status, recent changes and open work: see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
@@ -38,7 +38,9 @@ Then set `SOURCE = "data/mixed_test.mp4"` in `config.py`.
 | `python test_stage1.py` | Stage 1 gate on the video |
 | `python test_stage2.py` | gated pipeline + timing |
 | `python check_fire_model.py [video]` | sanity-check the fire model on a few frames |
-| `python ground_station\app.py` | ground station at http://localhost:5000 |
+| `python ground_station\app.py` | ground station dashboard at http://localhost:5000 (the drone finds it automatically) |
+| `python ground_station\demo_drone.py` | simulated drone, to demo the dashboard without the Jetson |
+| `python ground_station\tiles.py prefetch --bbox ... --zoom 14-18` | download map tiles for offline use |
 | `python run_pipeline.py` | full pipeline, writes alerts to `data/alerts.db` and sends them |
 | `python forward_now.py` | push buffered alerts to the ground station |
 | `python benchmark.py [--source v.mp4] [--tag name]` | gated vs. heavy model on every frame (+ energy on Jetson) |
@@ -53,14 +55,16 @@ Settings live in `config.py`. These can be overridden by environment variables:
 | `EDGE_DEVICE` | `cpu` | `0` = first CUDA GPU (Jetson) |
 | `EDGE_PERSON_WEIGHTS` | `weights/yolov8n.pt` | person model (`.pt`, `.engine`, `.onnx`) |
 | `EDGE_FIRE_WEIGHTS` | `weights/fire_smoke.pt` | fire/smoke model |
-| `EDGE_SERVER_URL` | `http://localhost:5000/alert` | where the drone posts alerts |
+| `EDGE_SERVER_URL` | `auto` | `auto` finds the ground station by its beacon; or `http://host:5000` |
+| `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | drone name on the dashboard; shared key (must match `GS_LINK_KEY`) |
 | `EDGE_GPS` | `sim` | `sim`, `nmea` (u-blox M8N on serial) or `mavlink` (flight controller) |
 | `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / `0` (auto) | serial port for `nmea` |
 | `EDGE_MAVLINK_URL` | `/dev/ttyTHS1,57600` | connection for `mavlink` |
 | `EDGE_MOTION_COMP` | `1` | Stage 1 camera-motion compensation on/off |
 | `EDGE_STAGE2_EVERY_N` | `3` | while a detection is confirmed, run Stage 2 on every Nth triggered frame |
 | `EDGE_DB_PATH` | `data/alerts.db` | drone-side alert buffer |
-| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `127.0.0.1` / `5000` / `ground_station/received` | ground station |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5000` / `ground_station/received` | ground station (`127.0.0.1` = this laptop only) |
+| `GS_LINK_KEY` / `GS_BEACON_TARGETS` | none / `255.255.255.255,10.42.0.255` | shared key the drone must send; where the station announces itself |
 
 ## Benchmark (laptop CPU, one test video: 48 calm + 59 fire frames)
 

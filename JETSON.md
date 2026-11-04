@@ -19,7 +19,8 @@ flowchart LR
   CAM[Lenovo USB webcam] -- USB --> NANO[Jetson Nano B01]
   GPS[NEO-M8N GPS] -- "UART pins 8/10<br/>or USB-serial adapter" --> NANO
   PSU[5V 4A supply] -- barrel jack + J48 jumper --> NANO
-  NANO -- "Wi-Fi / Ethernet<br/>HTTP POST /alert" --> GS[Laptop ground station<br/>map + alert table]
+  NANO -- "Wi-Fi hotspot DRONE-EDGE<br/>alerts · telemetry · camera preview" --> GS[Laptop ground station<br/>live dashboard]
+  GS -. "UDP beacon (auto-discovery)" .-> NANO
 ```
 
 ---
@@ -138,32 +139,58 @@ sudo docker build --build-arg UPGRADE_ULTRALYTICS=1 -t edge-drone jetson/
 
 If that still fails, export to ONNX on the laptop (`python export_onnx.py`) and use `EDGE_FIRE_WEIGHTS=weights/fire_smoke.onnx` on the board. This runs through onnxruntime, which is slower than TensorRT.
 
-## 6. Live run with the ground station
+## 6. Field network: the Nano's own Wi-Fi hotspot
 
-On the **laptop**, connected to the same Wi-Fi or Ethernet as the Nano:
-
-```bash
-GS_HOST=0.0.0.0 python ground_station/app.py         # open http://localhost:5000
-```
-
-On the **Nano**:
+In the field there is no router. The Nano's Wi-Fi card becomes the access point, and the laptop joins it. Set this up once on the Nano:
 
 ```bash
-EDGE_DEVICE=0 EDGE_SOURCE=0 EDGE_GPS=nmea EDGE_GPS_PORT=/dev/ttyTHS1 \
-EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine \
-EDGE_SERVER_URL=http://<laptop-ip>:5000/alert \
-jetson/run_docker.sh python3 run_pipeline.py
+sudo jetson/hotspot.sh                      # SSID DRONE-EDGE, prints a generated password once
+sudo jetson/hotspot.sh --password 'choose-a-good-one'   # or pick your own (8+ characters)
 ```
 
-To test indoors, point the webcam at a fire video playing on a phone or monitor. If an alert shows `no fix`, the GPS had no valid position at that moment. The alert is still stored and sent.
+- The Nano is then always at `10.42.0.1` and gives the laptop an address. The hotspot comes back on every boot.
+- To use normal Wi-Fi again: `sudo jetson/hotspot.sh --off`.
+- If the script says the card has no AP mode, use a phone hotspot that both devices join instead. Everything else works the same.
 
-Ctrl+C (or `systemctl stop`) stops cleanly and sends any buffered alerts.
+## 7. Live run with the ground station
 
-## 7. Start automatically at boot (no monitor on the drone)
+**You don't need to type any IP address.** The ground station announces itself on the Wi-Fi every 2 s (UDP port 5005), and the drone connects to whichever station it hears (`EDGE_SERVER_URL=auto`, the default).
+
+1. **Laptop:** join the `DRONE-EDGE` Wi-Fi, then start the station and open the dashboard at http://localhost:5000:
+
+   ```bash
+   python ground_station/app.py
+   ```
+
+2. **Nano:**
+
+   ```bash
+   EDGE_DEVICE=0 EDGE_SOURCE=0 EDGE_GPS=nmea EDGE_GPS_PORT=/dev/ttyTHS1 \
+   EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine \
+   jetson/run_docker.sh python3 run_pipeline.py
+   ```
+
+3. Within about 2 s the dashboard shows **LIVE**: the drone on the map, GPS status, board status, and the camera preview. Alerts pop up with a sound.
+
+Notes:
+- **Dashboard:** acknowledge and resolve alerts, add notes, and use *Export* for CSV, GeoJSON, KML (Google Earth) and a printable report (Print → Save as PDF). *New mission* starts a fresh mission.
+- **Maps offline:** the station saves every map tile it shows. Open the dashboard once at home **with internet** over the flight area, or download the area ahead of time:
+
+  ```bash
+  python ground_station/tiles.py prefetch --bbox 12.965,77.585,12.978,77.598 --zoom 14-18
+  ```
+
+- **Extra security:** set the same key on both sides, `GS_LINK_KEY=...` on the laptop and `EDGE_LINK_KEY=...` on the Nano. The station then ignores anything sent without the key.
+- **Fixed address instead of discovery:** `EDGE_SERVER_URL=http://<laptop-ip>:5000`.
+- **Demo without the Nano:** `python ground_station/demo_drone.py` simulates a drone flying, spotting a fire and a person. Use `--no-gps` to show the "no fix" handling.
+- **Indoor test:** point the webcam at a fire video on a phone or monitor. If an alert shows `no fix`, the GPS had no valid position at that moment; the alert is still stored and sent.
+- **Stopping:** Ctrl+C (or `systemctl stop`) stops cleanly and sends any buffered alerts. If the link drops, alerts wait on the drone and are sent when it comes back.
+
+## 7b. Start automatically at boot (no monitor on the drone)
 
 ```bash
 sudo jetson/install_service.sh
-sudo nano /etc/default/edge-drone          # set EDGE_SERVER_URL to the laptop IP, check GPS port
+sudo nano /etc/default/edge-drone          # check the GPS port; EDGE_SERVER_URL=auto finds the laptop
 sudo systemctl start edge-drone
 journalctl -u edge-drone -f                # live log
 ```
@@ -179,7 +206,9 @@ To turn it off: `sudo systemctl disable --now edge-drone`.
 | All-black frames | the webcam privacy shutter is closed |
 | `no NMEA data on /dev/ttyTHS1` | TX/RX not crossed, `nvgetty` still enabled, or no power to the GPS |
 | GPS `no fix` indoors | normal: go outside |
-| Alerts never reach the laptop | laptop firewall, wrong IP in `EDGE_SERVER_URL`, or the station not started with `GS_HOST=0.0.0.0`. Check with `curl http://<laptop-ip>:5000/health` from the Nano. |
+| Dashboard says WAITING FOR DRONE | the drone has not found the station. Check: laptop joined `DRONE-EDGE`; the laptop firewall allows Python on TCP 5000 (incoming) and UDP 5005; the Nano log shows `[link] ground station found at ...`. To skip discovery, set `EDGE_SERVER_URL=http://<laptop-ip>:5000`. Test with `curl http://<laptop-ip>:5000/health` from the Nano. |
+| LINK LOST on the dashboard | the Wi-Fi link dropped or the pipeline stopped. Alerts are kept on the drone and arrive when the link is back. |
+| Map is blank in the field | those tiles were never cached: open the area once with internet, or use `tiles.py prefetch` |
 | `power source: none` | not running on the Jetson, or `/sys` not visible in the container |
 | TensorRT export killed | out of memory: run `jetson/setup_nano.sh` to add swap, and close the desktop session |
 | Everything is slow | run `sudo nvpmodel -m 0 && sudo jetson_clocks`. `jetson_clocks` resets at reboot; the autostart service runs it for you. |
