@@ -126,6 +126,8 @@ def test_snap_path_traversal_404(client, app):
     assert client.get("/snap/../station.db").status_code == 404
     assert client.get("/snap/%2e%2e/station.db").status_code == 404
     assert client.get("/snap/..%2fstation.db").status_code == 404
+    assert client.get("/snap/station.db").status_code == 404
+    assert client.get("/snap/station.db-wal").status_code == 404
 
 
 def test_snapshot_saved_and_served(client):
@@ -170,3 +172,26 @@ def test_dashboard_has_no_external_assets(client):
     assert lj.status_code == 200 and b"1.9.4" in lj.data[:400]
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/app.css").status_code == 200
+
+
+@pytest.mark.parametrize("gps", [
+    {"fix": True, "lat": 1.0, "lon": 2.0, "course_deg": "0deg)\"><img src=x onerror=alert(1)>"},
+    {"fix": True, "lat": float("nan"), "lon": 2.0},
+    {"fix": True, "lat": 1.0, "lon": float("inf")},
+    {"fix": True, "lat": True, "lon": 2.0},
+    {"fix": "yes", "lat": 1.0, "lon": 2.0},
+    {"sats": "nine"},
+])
+def test_telemetry_rejects_bad_gps_fields(client, gps):
+    import json
+    body = json.dumps({"drone_id": "x", "gps": gps})        # json.dumps allows NaN/Infinity
+    r = client.post("/api/telemetry", data=body, content_type="application/json")
+    assert r.status_code == 400
+    st = client.get("/api/state").get_json()
+    assert st["telemetry"] is None and st["track"] == []
+
+
+def test_telemetry_null_gps_fields_still_ok(client):
+    r = client.post("/api/telemetry", json={"gps": {"mode": "nmea", "fix": False, "lat": None,
+                                                    "lon": None, "course_deg": None}})
+    assert r.status_code == 200

@@ -150,3 +150,16 @@ def test_report_counts_acknowledged_as_open(tmp_path):
     c.post("/api/alerts/1", json={"status": "acknowledged"})
     html = c.get("/report/1").get_data(as_text=True)
     assert "0 resolved · 1 open" in html
+
+
+def test_tile_offline_backoff_skips_fetch(tmp_path):
+    calls = []
+
+    def fetch(z, x, y):
+        calls.append((z, x, y))
+        return None                                   # offline
+    c = tile_client(tmp_path, fetch)
+    assert c.get("/tiles/3/2/1.png").status_code == 404
+    assert c.get("/tiles/3/2/2.png").status_code == 404   # within the backoff window
+    assert c.get("/tiles/3/1/1.png").status_code == 404
+    assert calls == [(3, 2, 1)]

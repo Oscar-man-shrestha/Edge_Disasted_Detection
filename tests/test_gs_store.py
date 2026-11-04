@@ -77,3 +77,9 @@ def test_migrates_v1_station_db(tmp_path):
     assert [r["type"] for r in rows] == ["fire", "person"]
     assert all(r["status"] == "new" and r["mission_id"] == 1 for r in rows)
     assert rows[0]["snapshot"] == "1_fire.jpg"
+
+
+def test_track_ignores_non_finite(st):
+    assert st.add_track_point("nano", 1.0, float("nan"), 77.59, None) is False
+    assert st.add_track_point("nano", 1.0, 12.97, float("inf"), None) is False
+    assert st.track(st.current_mission()["id"]) == []

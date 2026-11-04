@@ -29,7 +29,7 @@ DEFAULT_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receiv
 def osm_fetch(z, x, y):
     import requests
     try:
-        r = requests.get(TILE_URL.format(z=z, x=x, y=y), timeout=5,
+        r = requests.get(TILE_URL.format(z=z, x=x, y=y), timeout=(2, 5),
                          headers={"User-Agent": USER_AGENT})
     except requests.RequestException:
         return None
@@ -52,9 +52,14 @@ def _save(path, data):
     os.replace(tmp, path)
 
 
+OFFLINE_BACKOFF_S = 30.0
+
+
 def tiles_blueprint(cache_dir, fetch=None):
     fetch = fetch or osm_fetch
     bp = Blueprint("tiles", __name__)
+    offline_until = [0.0]          # after a failed fetch, serve cache-only for a while:
+                                   # hung lookups would tie up the browser's few connections
 
     @bp.route("/tiles/<int:z>/<int:x>/<int:y>.png")
     def tile(z, x, y):
@@ -62,8 +67,11 @@ def tiles_blueprint(cache_dir, fetch=None):
             abort(404)
         path = _path(cache_dir, z, x, y)
         if not os.path.isfile(path):
+            if time.time() < offline_until[0]:
+                abort(404)                       # recently offline: don't try the internet again yet
             data = fetch(z, x, y)
             if not data:
+                offline_until[0] = time.time() + OFFLINE_BACKOFF_S
                 abort(404)                       # offline and not cached: blank tile
             _save(path, data)
         resp = send_file(path, mimetype="image/png")

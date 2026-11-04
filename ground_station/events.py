@@ -44,8 +44,16 @@ class EventBus:
                 try:
                     event, data = q.get(timeout=heartbeat)
                 except queue.Empty:
+                    if not self._subscribed(q):
+                        return                  # dropped: end the response so the browser reconnects
                     yield ": hb\n\n"
                     continue
                 yield format_sse(event, data)
+                if q.empty() and not self._subscribed(q):
+                    return
         finally:
             self.unsubscribe(q)
+
+    def _subscribed(self, q):
+        with self._lock:
+            return q in self._subs

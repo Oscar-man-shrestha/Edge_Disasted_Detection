@@ -64,3 +64,19 @@ def test_beacon_received_on_localhost():
     msg = json.loads(data)
     assert msg["service"] == "edge-gs" and msg["port"] == 5000 and msg["v"] == 1
     assert json.loads(beacon_payload(5000))["service"] == "edge-gs"
+
+
+def test_stream_ends_after_subscriber_dropped():
+    """A dropped (stalled) tab must be disconnected so EventSource reconnects and resyncs."""
+    bus = EventBus(max_queue=2)
+    q = bus.subscribe()
+    gen = bus.stream(q, heartbeat=0.05)
+    for i in range(5):
+        bus.publish("telemetry", {"i": i})
+    assert q not in bus._subs
+    out = []
+    t0 = time.time()
+    for chunk in gen:                      # must terminate instead of heartbeating forever
+        out.append(chunk)
+        assert time.time() - t0 < 2, "stream kept running after the drop"
+    assert len([c for c in out if c.startswith("event:")]) <= 2

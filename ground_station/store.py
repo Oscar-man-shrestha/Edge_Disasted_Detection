@@ -164,6 +164,8 @@ class Store:
     # ------------------------------------------------------------ track
     def add_track_point(self, drone_id, t, lat, lon, alt_m):
         """Store a point if the drone moved >= 2 m or 5 s passed since the last one kept."""
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (t, lat, lon)):
+            return False
         with self.lock:
             last = self._last_track.get(drone_id)
             if last is not None:

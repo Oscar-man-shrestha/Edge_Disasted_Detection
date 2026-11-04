@@ -6,7 +6,9 @@ Environment: GS_HOST (default 0.0.0.0), GS_PORT (5000), GS_DATA_DIR (ground_stat
 GS_LINK_KEY (shared key the drone must send), GS_BEACON_TARGETS, GS_BEACON_PORT.
 """
 import json
+import math
 import os
+import re
 import socket
 import threading
 import time
@@ -25,6 +27,25 @@ LINK_LOST_SEC = 3.0
 PREVIEW_MAX_BYTES = 500 * 1024
 DRONE_ROUTES = ("/alert", "/api/telemetry", "/api/preview")
 TELEMETRY_BLOCKS = ("gps", "pipeline", "system", "link")
+SNAP_NAME = re.compile(r"^\d+_[a-z]+\.jpg$")
+GPS_NUMBERS = ("lat", "lon", "alt_m", "sats", "hdop", "speed_mps", "course_deg", "age_s")
+
+
+def _finite_or_none(v):
+    return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v))
+
+
+def gps_problem(gps):
+    """Why a telemetry gps block is unacceptable, or None. Values are rendered into the
+    dashboard and stored in the track, so they must be plain finite numbers."""
+    if gps is None:
+        return None
+    for k in GPS_NUMBERS:
+        if not _finite_or_none(gps.get(k)):
+            return "gps.%s must be a finite number or null" % k
+    if gps.get("fix") not in (None, True, False):
+        return "gps.fix must be true, false or null"
+    return None
 
 
 def link_state(live, now):
@@ -78,6 +99,9 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
         for k in TELEMETRY_BLOCKS:
             if body.get(k) is not None and not isinstance(body[k], dict):
                 return jsonify(error="%s must be an object" % k), 400
+        problem = gps_problem(body.get("gps"))
+        if problem:
+            return jsonify(error=problem), 400
         body.setdefault("drone_id", request.headers.get("X-Drone-Id"))
         live["telemetry"] = body
         live["received_at"] = time.time()
@@ -231,7 +255,7 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
 
     @app.route("/snap/<path:name>")
     def snap(name):
-        if os.path.basename(name) != name or name.startswith("."):
+        if not SNAP_NAME.match(name):             # only "<id>_<type>.jpg", never the database
             abort(404)
         for d in (snap_dir, data_dir):            # v1 snapshots live directly in data_dir
             if os.path.isfile(os.path.join(d, name)):

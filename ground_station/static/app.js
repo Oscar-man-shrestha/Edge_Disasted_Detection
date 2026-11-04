@@ -81,8 +81,10 @@
   var markers = new Map();
   var droneMarker = null, fitted = false;
 
+  function fin(v) { return typeof v === "number" && isFinite(v); }
   function droneIcon(course, stale) {
-    var svg = '<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(' + (course || 0) + 'deg)">' +
+    var deg = fin(course) ? course : 0;          // never concatenate network strings into HTML
+    var svg = '<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(' + deg + 'deg)">' +
       '<path d="M15 2 L26 27 L15 21 L4 27 Z" fill="#e8ebf1" stroke="#0d1016" stroke-width="2" stroke-linejoin="round"/></svg>';
     return L.divIcon({ className: "", html: '<div class="drone-icon' + (stale ? " stale" : "") + '">' + svg + "</div>",
       iconSize: [34, 34], iconAnchor: [17, 17] });
@@ -92,7 +94,7 @@
     return L.divIcon({ className: "", html: '<div class="' + cls + '">' + LETTER[a.type] + "</div>",
       iconSize: [26, 26], iconAnchor: [13, 13] });
   }
-  function located(a) { return a.lat != null && a.lon != null; }
+  function located(a) { return fin(a.lat) && fin(a.lon); }
   function upsertMarker(a) {
     var m = markers.get(a.id);
     if (!located(a) || !visible(a)) { if (m) { alertLayer.removeLayer(m); markers.delete(a.id); } return; }
@@ -110,7 +112,7 @@
   function renderDrone() {
     var t = S.telemetry, g = t && t.gps;
     var stale = S.linkState !== "live";
-    if (g && g.fix === true && typeof g.lat === "number") {
+    if (g && g.fix === true && fin(g.lat) && fin(g.lon)) {
       var ll = [g.lat, g.lon];
       if (!droneMarker) droneMarker = L.marker(ll, { icon: droneIcon(g.course_deg, stale), zIndexOffset: 2000, keyboard: false }).addTo(map);
       else { droneMarker.setLatLng(ll); droneMarker.setIcon(droneIcon(g.course_deg, stale)); }
@@ -428,7 +430,7 @@
   function applyTelemetry(t, serverTime) {
     S.telemetry = t; S.telemetryAt = serverTime;
     var g = t && t.gps;
-    if (g && g.fix === true && typeof g.lat === "number") addTrackPoint(g.lat, g.lon);
+    if (g && g.fix === true && fin(g.lat) && fin(g.lon)) addTrackPoint(g.lat, g.lon);
     renderLink(); renderGps(); renderCards(); renderDrone();
   }
   function loadState() {
@@ -436,14 +438,24 @@
       syncClock(st.server_time);
       S.mission = st.mission; S.missions = st.missions || [];
       S.alerts = new Map();
-      (st.alerts || []).forEach(function (a) { S.alerts.set(a.id, a); S.seen.add(a.id); });
-      trail.setLatLngs((st.track || []).map(function (p) { return [p.lat, p.lon]; }));
+      var missed = [];
+      (st.alerts || []).forEach(function (a) {
+        S.alerts.set(a.id, a);
+        // first load: everything is history. Later (re)loads: alerts that arrived while the
+        // stream was down still deserve their toast + sound.
+        if (S.loaded && !S.seen.has(a.id) && a.status === "new") missed.push(a);
+        else S.seen.add(a.id);
+      });
+      S.loaded = true;
+      trail.setLatLngs((st.track || []).filter(function (p) { return fin(p.lat) && fin(p.lon); })
+        .map(function (p) { return [p.lat, p.lon]; }));
       S.telemetry = st.telemetry;
       S.telemetryAt = st.link && st.link.age_s != null ? st.server_time - st.link.age_s : null;
       S.preview = st.preview;
       markers.forEach(function (m) { alertLayer.removeLayer(m); }); markers.clear();
       renderMission(); renderTimer(); renderLink(); renderGps(); renderCards(); renderDrone(); renderPreview(); renderFeed();
       if (!fitted && (trail.getLatLngs().length || S.alerts.size)) { fitAll(); fitted = true; }
+      missed.forEach(notifyAlert);
     }).catch(function (e) { toast("Station unreachable", e.message); });
   }
   var es = null;
