@@ -49,3 +49,5 @@ DRONE_SPEED_MPS = 5.0          # simulated ground speed, metres per second
 ALERT_COOLDOWN_SEC = 10        # same alert type stays quiet this long after firing
 PERSON_ALERT_CONF = 0.5        # people need higher confidence than fire/smoke
 SNAPSHOT_DIR = "data/snapshots"
+FORWARD_INTERVAL_SEC = 5       # during a run, try to send buffered alerts this often (wall clock)
+FORWARD_CONNECT_TIMEOUT = 1.0  # short, so a dead link does not stall the frame loop

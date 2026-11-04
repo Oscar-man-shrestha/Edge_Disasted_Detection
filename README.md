@@ -7,6 +7,8 @@ locally (SQLite), and forwarded to a ground station when a link exists.
 
 camera -> Stage 1 gate -> Stage 2 YOLO -> GPS tag -> SQLite store -> Flask ground station
 
+Current status, recent changes and open work: see [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
 ## Setup (laptop)
 
     python -m venv venv

@@ -9,6 +9,7 @@ os.makedirs(SNAP_DIR, exist_ok=True)
 
 PRIORITY = {"person": 1, "fire": 2, "smoke": 3}
 alerts = []          # kept in memory; snapshots are saved to disk
+seen = set()         # (drone alert_id, wall_time) already stored, to drop resends
 
 
 @app.route("/alert", methods=["POST"])
@@ -31,12 +32,19 @@ def receive():
     except (KeyError, ValueError):
         return jsonify(error="bad fields"), 400
 
+    # The drone resends when a reply is lost; answer 200 so it marks the alert sent.
+    key = (request.form.get("alert_id"), entry["wall_time"])
+    if key[0] is not None and key in seen:
+        return jsonify(ok=True, duplicate=True), 200
+
     f = request.files.get("snapshot")
     if f:
         name = f"{entry['id']}_{typ}.jpg"
         f.save(os.path.join(SNAP_DIR, name))
         entry["snapshot"] = name
     alerts.append(entry)
+    if key[0] is not None:
+        seen.add(key)
     print(f"[server] alert #{entry['id']} {typ} {entry['conf']:.2f} @ {entry['lat']:.6f},{entry['lon']:.6f}")
     return jsonify(ok=True), 200
 

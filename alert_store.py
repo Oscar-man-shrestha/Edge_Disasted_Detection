@@ -45,24 +45,35 @@ class AlertStore:
         return cur.lastrowid
 
     def forward_pending(self):
-        """Try to POST unsent alerts, most important first. Stops at the first failure."""
+        """Try to POST unsent alerts, most important first. Stops at the first failure.
+
+        alert_id + wall_time let the ground station drop a resend whose first copy
+        arrived but whose reply was lost. A missing snapshot does not block the alert.
+        """
         import requests
         rows = self.db.execute(
             "SELECT id, video_time, wall_time, type, conf, lat, lon, snapshot "
             "FROM alerts WHERE sent=0 ORDER BY priority, id").fetchall()
         sent = 0
         for id_, vt, wt, typ, conf, lat, lon, snap in rows:
+            data = {"alert_id": id_, "type": typ, "conf": conf, "lat": lat, "lon": lon,
+                    "video_time": vt, "wall_time": wt}
+            f = None
             try:
-                with open(snap, "rb") as f:
-                    r = requests.post(
-                        config.SERVER_URL,
-                        data={"type": typ, "conf": conf, "lat": lat, "lon": lon,
-                              "video_time": vt, "wall_time": wt},
-                        files={"snapshot": f}, timeout=3)
+                if snap and os.path.isfile(snap):
+                    f = open(snap, "rb")
+                else:
+                    print(f"[link] snapshot missing for alert #{id_}, sending without image")
+                r = requests.post(config.SERVER_URL, data=data,
+                                  files={"snapshot": f} if f else None,
+                                  timeout=(config.FORWARD_CONNECT_TIMEOUT, 3))
                 if r.status_code != 200:
                     break
             except requests.RequestException:
                 break                 # no connection: keep buffering
+            finally:
+                if f:
+                    f.close()
             self.db.execute("UPDATE alerts SET sent=1 WHERE id=?", (id_,))
             self.db.commit()
             sent += 1

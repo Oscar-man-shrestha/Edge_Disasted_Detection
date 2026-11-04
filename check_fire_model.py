@@ -1,3 +1,4 @@
+import sys
 import cv2
 from ultralytics import YOLO
 import config
@@ -5,7 +6,11 @@ import config
 model = YOLO(config.FIRE_WEIGHTS)
 print("classes:", model.names)
 
-cap = cv2.VideoCapture("data/test_video.mp4")
+# usage: python check_fire_model.py [video]   (default: data/test_video.mp4)
+video = sys.argv[1] if len(sys.argv) > 1 else "data/test_video.mp4"
+cap = cv2.VideoCapture(video)
+if not cap.isOpened():
+    raise SystemExit(f"Cannot open {video}")
 for sec in [1, 5, 10, 15, 20, 25]:
     cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
     ok, frame = cap.read()
