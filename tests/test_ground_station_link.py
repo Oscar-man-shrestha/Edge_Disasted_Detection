@@ -11,17 +11,21 @@ pytest.importorskip("flask")
 pytest.importorskip("requests")
 
 
+class Station:
+    def __init__(self, data_dir):
+        from app import create_app
+        self.data_dir = data_dir
+        self.app = create_app(data_dir)
+
+
 @pytest.fixture
 def station(tmp_path, monkeypatch):
-    import app as gs
     from werkzeug.serving import make_server
-    monkeypatch.setattr(gs, "SNAP_DIR", str(tmp_path / "gs"))
-    monkeypatch.setattr(gs, "DB_PATH", str(tmp_path / "gs" / "station.db"))
-    monkeypatch.setattr(gs, "_db", None)
-    srv = make_server("127.0.0.1", 0, gs.app, threaded=True)
+    st = Station(str(tmp_path / "gs"))
+    srv = make_server("127.0.0.1", 0, st.app, threaded=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     monkeypatch.setattr(config, "SERVER_URL", "http://127.0.0.1:%d/alert" % srv.server_port)
-    yield gs
+    yield st
     srv.shutdown()
 
 
@@ -73,6 +77,5 @@ def test_send_priority_missing_snapshot_dedupe_and_restart(tmp_config, station):
     assert st.forward_pending() == (3, 0)
     assert len(alerts(station)) == 3
 
-    station._db.close()                                       # ground station restart
-    station._db = None
-    assert len(alerts(station)) == 3
+    restarted = Station(station.data_dir)                     # ground station restart
+    assert len(alerts(restarted)) == 3

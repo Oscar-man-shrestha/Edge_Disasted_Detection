@@ -1,103 +1,240 @@
+"""Ground station: receives the drone's alerts, telemetry and previews; serves the dashboard.
+
+    python ground_station/app.py          # http://localhost:5000, beacon on UDP 5005
+
+Environment: GS_HOST (default 0.0.0.0), GS_PORT (5000), GS_DATA_DIR (ground_station/received),
+GS_LINK_KEY (shared key the drone must send), GS_BEACON_TARGETS, GS_BEACON_PORT.
+"""
 import os
-import sqlite3
+import socket
 import threading
 import time
-from flask import Flask, request, jsonify, send_from_directory
 
-app = Flask(__name__)
+from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+
+from discovery import DEFAULT_BEACON_PORT, Beacon
+from events import EventBus
+from store import Store
+
 BASE = os.path.dirname(os.path.abspath(__file__))
-SNAP_DIR = os.environ.get("GS_DATA_DIR", os.path.join(BASE, "received"))
-DB_PATH = os.path.join(SNAP_DIR, "station.db")
-
 PRIORITY = {"person": 1, "fire": 2, "smoke": 3}
-_lock = threading.Lock()
-_db = None
+LINK_LOST_SEC = 3.0
+PREVIEW_MAX_BYTES = 500 * 1024
+DRONE_ROUTES = ("/alert", "/api/telemetry", "/api/preview")
+TELEMETRY_BLOCKS = ("gps", "pipeline", "system", "link")
 
 
-def db():
-    """Alerts survive a ground-station restart (SQLite next to the snapshots)."""
-    global _db
-    if _db is None:
-        os.makedirs(SNAP_DIR, exist_ok=True)
-        _db = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _db.execute("""CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            drone_alert_id TEXT, type TEXT, conf REAL, lat REAL, lon REAL,
-            video_time REAL, wall_time TEXT, received TEXT, snapshot TEXT)""")
-        # the drone resends when a reply is lost; this makes the resend a no-op
-        _db.execute("CREATE UNIQUE INDEX IF NOT EXISTS dedupe ON alerts(drone_alert_id, wall_time)")
-        _db.commit()
-    return _db
+def link_state(live, now):
+    """'never' before the first telemetry, 'live' if the last one is < 3 s old, else 'lost'.
+    Uses the station's receive time, so drone/laptop clock differences do not matter."""
+    t = live.get("received_at")
+    if t is None:
+        return {"state": "never", "age_s": None}
+    age = max(0.0, now - t)
+    return {"state": "live" if age < LINK_LOST_SEC else "lost", "age_s": round(age, 1)}
 
 
 def _opt_float(v):
-    """lat/lon may be empty when the drone had no GPS fix."""
-    if v is None or v.strip().lower() in ("", "none", "nan"):
+    if v is None or str(v).strip().lower() in ("", "none", "nan", "null"):
         return None
     return float(v)
 
 
-@app.route("/alert", methods=["POST"])
-def receive():
-    typ = request.form.get("type", "")
-    if typ not in PRIORITY:
-        return jsonify(error="bad type"), 400
-    try:
-        conf = float(request.form["conf"])
-        lat = _opt_float(request.form.get("lat"))
-        lon = _opt_float(request.form.get("lon"))
-        video_time = float(request.form.get("video_time", 0))
-    except (KeyError, ValueError):
-        return jsonify(error="bad fields"), 400
-    wall_time = request.form.get("wall_time", "")[:40]
-    drone_id = request.form.get("alert_id")
+def _sorted(alerts):
+    return sorted(alerts, key=lambda a: (PRIORITY.get(a["type"], 9), -a["id"]))
 
-    with _lock:
-        con = db()
-        if drone_id is not None:
-            dup = con.execute("SELECT id FROM alerts WHERE drone_alert_id=? AND wall_time=?",
-                              (drone_id, wall_time)).fetchone()
-            if dup:
-                return jsonify(ok=True, duplicate=True), 200
-        cur = con.execute(
-            "INSERT INTO alerts (drone_alert_id, type, conf, lat, lon, video_time, wall_time, received) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (drone_id, typ, conf, lat, lon, video_time, wall_time, time.strftime("%H:%M:%S")))
-        new_id = cur.lastrowid
+
+def create_app(data_dir=None, link_key="", watcher=True):
+    data_dir = data_dir or os.path.join(BASE, "received")
+    snap_dir = os.path.join(data_dir, "snaps")
+    os.makedirs(snap_dir, exist_ok=True)
+
+    app = Flask(__name__, static_folder=os.path.join(BASE, "static"),
+                template_folder=os.path.join(BASE, "templates"))
+    store = Store(os.path.join(data_dir, "station.db"))
+    store.current_mission()                       # spec: a mission is open from startup
+    bus = EventBus()
+    live = {"telemetry": None, "received_at": None, "preview_jpeg": None,
+            "preview_t": None, "preview_stage2": False, "preview_received_at": None}
+    app.config.update(STORE=store, BUS=bus, LIVE=live, DATA_DIR=data_dir, SNAP_DIR=snap_dir)
+
+    # ------------------------------------------------------------ drone auth
+    @app.before_request
+    def _check_key():
+        if link_key and request.path in DRONE_ROUTES and request.method == "POST":
+            if request.headers.get("X-Link-Key", "") != link_key:
+                return jsonify(error="bad link key"), 401
+
+    # ------------------------------------------------------------ from the drone
+    @app.route("/api/telemetry", methods=["POST"])
+    def telemetry():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error="expected a JSON object"), 400
+        for k in TELEMETRY_BLOCKS:
+            if body.get(k) is not None and not isinstance(body[k], dict):
+                return jsonify(error="%s must be an object" % k), 400
+        body.setdefault("drone_id", request.headers.get("X-Drone-Id"))
+        live["telemetry"] = body
+        live["received_at"] = time.time()
+        gps = body.get("gps") or {}
+        if gps.get("fix") is True and isinstance(gps.get("lat"), (int, float)) \
+                and isinstance(gps.get("lon"), (int, float)):
+            store.add_track_point(body.get("drone_id") or "drone", live["received_at"],
+                                  gps["lat"], gps["lon"], gps.get("alt_m"))
+        bus.publish("telemetry", {"telemetry": body})
+        return jsonify(ok=True)
+
+    @app.route("/api/preview", methods=["POST"])
+    def preview():
+        data = request.get_data(cache=False)
+        if len(data) > PREVIEW_MAX_BYTES:
+            return jsonify(error="preview too large"), 413
+        if not data.startswith(b"\xff\xd8"):
+            return jsonify(error="not a JPEG"), 400
+        try:
+            frame_t = float(request.headers.get("X-Frame-Time", "nan"))
+        except ValueError:
+            frame_t = float("nan")
+        now = time.time()
+        live.update(preview_jpeg=data, preview_received_at=now,
+                    preview_t=None if frame_t != frame_t else frame_t,
+                    preview_stage2=request.headers.get("X-Stage2-Active") == "1")
+        bus.publish("preview", {"t": now, "stage2": live["preview_stage2"]})
+        return jsonify(ok=True)
+
+    @app.route("/alert", methods=["POST"])
+    def receive_alert():
+        typ = request.form.get("type", "")
+        if typ not in PRIORITY:
+            return jsonify(error="bad type"), 400
+        try:
+            fields = {
+                "drone_id": request.form.get("drone_id") or request.headers.get("X-Drone-Id"),
+                "drone_alert_id": request.form.get("alert_id"),
+                "type": typ,
+                "conf": float(request.form["conf"]),
+                "lat": _opt_float(request.form.get("lat")),
+                "lon": _opt_float(request.form.get("lon")),
+                "video_time": float(request.form.get("video_time") or 0),
+                "wall_time": request.form.get("wall_time", "")[:40],
+            }
+        except (KeyError, ValueError):
+            return jsonify(error="bad fields"), 400
+        alert, created = store.add_alert(fields)
+        if not created:
+            return jsonify(ok=True, duplicate=True)
         f = request.files.get("snapshot")
         if f:
-            name = f"{new_id}_{typ}.jpg"
-            f.save(os.path.join(SNAP_DIR, name))
-            con.execute("UPDATE alerts SET snapshot=? WHERE id=?", (name, new_id))
-        con.commit()
-    where = "no GPS fix" if lat is None else f"{lat:.6f},{lon:.6f}"
-    print(f"[server] alert #{new_id} {typ} {conf:.2f} @ {where}")
-    return jsonify(ok=True), 200
+            name = "%d_%s.jpg" % (alert["id"], typ)
+            f.save(os.path.join(snap_dir, name))
+            store.set_snapshot(alert["id"], name)
+            alert["snapshot"] = name
+        where = "no GPS fix" if alert["lat"] is None else "%.6f,%.6f" % (alert["lat"], alert["lon"])
+        print("[station] alert #%d %s %.2f @ %s" % (alert["id"], typ, alert["conf"], where))
+        bus.publish("alert", {"alert": alert})
+        return jsonify(ok=True)
+
+    # ------------------------------------------------------------ for the browser
+    def _preview_meta():
+        if live["preview_jpeg"] is None:
+            return None
+        return {"t": live["preview_received_at"], "frame_t": live["preview_t"],
+                "stage2": live["preview_stage2"]}
+
+    @app.route("/api/state")
+    def state():
+        m = store.current_mission()
+        return jsonify(server_time=time.time(), mission=m, missions=store.missions(),
+                       link=link_state(live, time.time()), telemetry=live["telemetry"],
+                       preview=_preview_meta(), alerts=_sorted(store.alerts(m["id"])),
+                       track=store.track(m["id"]))
+
+    @app.route("/api/stream")
+    def stream():
+        q = bus.subscribe()
+
+        def gen():
+            from events import format_sse
+            yield format_sse("hello", {"server_time": time.time()})
+            for chunk in bus.stream(q):
+                yield chunk
+        return app.response_class(gen(), mimetype="text/event-stream",
+                                  headers={"Cache-Control": "no-cache",
+                                           "X-Accel-Buffering": "no"})
+
+    @app.route("/api/preview.jpg")
+    def preview_jpg():
+        if live["preview_jpeg"] is None:
+            abort(404)
+        resp = app.response_class(live["preview_jpeg"], mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/api/alerts/<int:aid>", methods=["POST"])
+    def update_alert(aid):
+        body = request.get_json(silent=True) or {}
+        note = body.get("note")
+        if note is not None and not isinstance(note, str):
+            return jsonify(error="note must be text"), 400
+        try:
+            alert = store.update_alert(aid, status=body.get("status"), note=note)
+        except ValueError:
+            return jsonify(error="status must be new, acknowledged or resolved"), 400
+        if alert is None:
+            return jsonify(error="no such alert"), 404
+        bus.publish("alert_update", {"alert": alert})
+        return jsonify(ok=True, alert=alert)
+
+    @app.route("/api/missions", methods=["GET", "POST"])
+    def missions():
+        if request.method == "GET":
+            return jsonify(store.missions())
+        body = request.get_json(silent=True) or {}
+        name = body.get("name") if isinstance(body.get("name"), str) else None
+        m = store.new_mission(name.strip()[:80] if name and name.strip() else None)
+        bus.publish("mission", {"mission": m})
+        return jsonify(ok=True, mission=m)
+
+    @app.route("/snap/<path:name>")
+    def snap(name):
+        if os.path.basename(name) != name or name.startswith("."):
+            abort(404)
+        for d in (snap_dir, data_dir):            # v1 snapshots live directly in data_dir
+            if os.path.isfile(os.path.join(d, name)):
+                return send_from_directory(d, name)
+        abort(404)
+
+    @app.route("/alerts.json")
+    def alerts_json():
+        return jsonify(_sorted(store.alerts()))
+
+    @app.route("/health")
+    def health():
+        return jsonify(ok=True, server_time=time.time())
+
+    @app.route("/")
+    def index():
+        return render_template("index.html") if os.path.isfile(
+            os.path.join(BASE, "templates", "index.html")) else LEGACY_PAGE
+
+    # ------------------------------------------------------------ link watcher
+    if watcher:
+        def watch():
+            last = None
+            while True:
+                st = link_state(live, time.time())
+                if st["state"] != last:
+                    bus.publish("link", st)
+                    last = st["state"]
+                time.sleep(1.0)
+        threading.Thread(target=watch, daemon=True).start()
+
+    return app
 
 
-@app.route("/alerts.json")
-def alerts_json():
-    with _lock:
-        rows = db().execute(
-            "SELECT id, type, conf, lat, lon, video_time, wall_time, received, snapshot "
-            "FROM alerts").fetchall()
-    keys = ["id", "type", "conf", "lat", "lon", "video_time", "wall_time", "received", "snapshot"]
-    alerts = [dict(zip(keys, r)) for r in rows]
-    alerts.sort(key=lambda a: (PRIORITY[a["type"]], -a["id"]))
-    return jsonify(alerts)
-
-
-@app.route("/health")
-def health():
-    return jsonify(ok=True)
-
-
-@app.route("/snap/<path:name>")
-def snap(name):
-    return send_from_directory(SNAP_DIR, name)
-
-
-PAGE = """<!doctype html>
+LEGACY_PAGE = """  # v1 page, replaced by templates/index.html in Task 9
+<!doctype html>
 <html><head><meta charset="utf-8"><title>Ground Station</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -175,12 +312,18 @@ refresh(); setInterval(refresh, 2000);
 </script></body></html>"""
 
 
-@app.route("/")
-def index():
-    return PAGE
+def main():
+    host = os.environ.get("GS_HOST", "0.0.0.0")
+    port = int(os.environ.get("GS_PORT", "5000"))
+    data_dir = os.environ.get("GS_DATA_DIR") or None
+    targets = os.environ.get("GS_BEACON_TARGETS", "255.255.255.255,10.42.0.255").split(",")
+    beacon_port = int(os.environ.get("GS_BEACON_PORT", str(DEFAULT_BEACON_PORT)))
+    app = create_app(data_dir, link_key=os.environ.get("GS_LINK_KEY", ""))
+    Beacon(port, targets, beacon_port=beacon_port).start()
+    print("Ground station on http://localhost:%d  (host %s, %s)" % (port, socket.gethostname(), host))
+    print("Beacon: UDP %d -> %s" % (beacon_port, ", ".join(targets)))
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
-    # GS_HOST=0.0.0.0 makes the station reachable from the Jetson over the network.
-    app.run(host=os.environ.get("GS_HOST", "127.0.0.1"),
-            port=int(os.environ.get("GS_PORT", "5000")), debug=False, threaded=True)
+    main()
