@@ -33,25 +33,34 @@ Then set `SOURCE = "data/mixed_test.mp4"` in `config.py`.
 
 | Command | What it does |
 |---|---|
+| `python -m pytest` | automated tests (no models or video needed) |
 | `python test_source.py` | check frame sampling |
 | `python test_stage1.py` | Stage 1 gate on the video |
 | `python test_stage2.py` | gated pipeline + timing |
-| `python check_fire_model.py` | sanity-check the fire model on a few frames |
+| `python check_fire_model.py [video]` | sanity-check the fire model on a few frames |
 | `python ground_station\app.py` | ground station at http://localhost:5000 |
-| `python run_pipeline.py` | full pipeline, writes alerts to `data/alerts.db` |
+| `python run_pipeline.py` | full pipeline, writes alerts to `data/alerts.db` and sends them |
 | `python forward_now.py` | push buffered alerts to the ground station |
-| `python benchmark.py` | gated vs. heavy-model-on-every-frame benchmark |
+| `python benchmark.py [--source v.mp4] [--tag name]` | gated vs. heavy model on every frame (+ energy on Jetson) |
+| `python gps_source.py` | print GPS fixes from the configured GPS mode |
+| `python power_monitor.py` | Jetson board power reading |
 
 Settings live in `config.py`. These can be overridden by environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EDGE_SOURCE` | `data/mixed_test.mp4` | video path, camera index (`0`), `csi`, or a GStreamer pipeline |
+| `EDGE_SOURCE` | `data/mixed_test.mp4` | video path, USB camera index (`0`), `csi`, a GStreamer pipeline, or an MJPEG URL |
 | `EDGE_DEVICE` | `cpu` | `0` = first CUDA GPU (Jetson) |
 | `EDGE_PERSON_WEIGHTS` | `weights/yolov8n.pt` | person model (`.pt`, `.engine`, `.onnx`) |
 | `EDGE_FIRE_WEIGHTS` | `weights/fire_smoke.pt` | fire/smoke model |
 | `EDGE_SERVER_URL` | `http://localhost:5000/alert` | where the drone posts alerts |
-| `GS_HOST` / `GS_PORT` | `127.0.0.1` / `5000` | ground-station bind address |
+| `EDGE_GPS` | `sim` | `sim`, `nmea` (u-blox M8N on serial) or `mavlink` (flight controller) |
+| `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / `0` (auto) | serial port for `nmea` |
+| `EDGE_MAVLINK_URL` | `/dev/ttyTHS1,57600` | connection for `mavlink` |
+| `EDGE_MOTION_COMP` | `1` | Stage 1 camera-motion compensation on/off |
+| `EDGE_STAGE2_EVERY_N` | `3` | while a detection is confirmed, run Stage 2 on every Nth triggered frame |
+| `EDGE_DB_PATH` | `data/alerts.db` | drone-side alert buffer |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `127.0.0.1` / `5000` / `ground_station/received` | ground station |
 
 ## Benchmark (laptop CPU, one test video: 48 calm + 59 fire frames)
 
@@ -66,47 +75,23 @@ Settings live in `config.py`. These can be overridden by environment variables:
 
 Caveats: one clip with gentle camera motion; the saving depends on the calm/fire mix;
 person detection is not yet tested on video; laptop numbers only.
+These numbers were measured before motion compensation and the Stage 2 scheduler were
+added; re-run `benchmark.py` for current figures.
 
-## Jetson Nano (JetPack 4.6): board arrived, bring-up in progress
+## Jetson Nano
 
-Hardware: Jetson Nano Developer Kit B01 (P3450). Power it from a 5V 4A barrel jack with
-the J48 jumper fitted; micro-USB cannot sustain MAXN mode.
+Hardware: Jetson Nano Developer Kit B01, Lenovo USB webcam, u-blox NEO-M8N GPS.
+Everything (wiring, setup script, Docker, benchmark order, autostart, troubleshooting)
+is in **[JETSON.md](JETSON.md)**. Short version:
 
-Ultralytics supports the original Nano only through Docker on JetPack 4.
-
-**Check first:** `fire_smoke.pt` is a YOLO26n fine-tune. The JetPack 4 container may ship an
-Ultralytics version too old to load YOLO26. If step 5 fails with an unknown-module error,
-use the ONNX fallback in step 9 for the fire model.
-
-1. Max performance: `sudo nvpmodel -m 0 && sudo jetson_clocks`
-2. `sudo docker pull ultralytics/ultralytics:latest-jetson-jetpack4`
-3. Start it with the repo mounted:
-   `sudo docker run -it --ipc=host --runtime=nvidia -v $(pwd):/work -w /work -p 5000:5000 ultralytics/ultralytics:latest-jetson-jetpack4`
-4. Inside the container: `pip install flask requests`, copy the weights into `weights/`.
-5. Check both models load and run: `EDGE_DEVICE=0 python check_fire_model.py`
-6. Benchmark in PyTorch: `EDGE_DEVICE=0 python benchmark.py`, then rename
-   `data/benchmark_results.json` so the next run does not overwrite it.
-7. Export TensorRT engines on the board: `python export_trt.py`
-   (engines are device-specific, never commit them), then re-run the benchmark with
-   `EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine`.
-8. Power: `sudo tegrastats --interval 1000 --logfile power.log` during a run
-   (look for the input-power field) to compare energy, not just compute time.
-9. If the model will not load on JetPack 4: `YOLO(...).export(format="onnx")` on the laptop
-   and test the ONNX file on the board.
-
-CSI camera: `EDGE_SOURCE=csi python run_pipeline.py` (sensor id, capture size and flip are
-`CSI_*` in `config.py`). This needs OpenCV built with GStreamer, which the JetPack system
-OpenCV is; a pip-installed `opencv-python` inside a container is not. Inside Docker, also pass
-`-v /tmp/argus_socket:/tmp/argus_socket` so the container can reach the camera daemon.
-
-To send alerts to a laptop ground station, start it with `GS_HOST=0.0.0.0` and set
-`EDGE_SERVER_URL=http://<laptop-ip>:5000/alert` on the Jetson.
+    jetson/setup_nano.sh                                   # once
+    EDGE_DEVICE=0 jetson/run_docker.sh python3 check_fire_model.py data/mixed_test.mp4
+    EDGE_DEVICE=0 jetson/run_docker.sh python3 benchmark.py --tag nano_pytorch
+    jetson/run_docker.sh python3 export_trt.py
+    sudo jetson/install_service.sh                         # start at boot
 
 ## TODO
-- Stress-test Stage 1: fast camera motion, orange/red terrain, sunsets
-- Test person detection on aerial footage
-- Skip Stage 2 on some frames after a confirmed fire
-- Jetson benchmark and power numbers
+See the "Still open" table in [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Credits and licences
 - Fire/smoke model: `seawsurf/fire_yolo` on Hugging Face (YOLO26n fine-tuned on the

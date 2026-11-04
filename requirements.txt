@@ -2,3 +2,6 @@ ultralytics>=8.4.0
 opencv-python
 flask
 requests
+pyserial          # EDGE_GPS=nmea (u-blox NEO-M8N GPS)
+# optional: pymavlink  (EDGE_GPS=mavlink, flight controller)
+# dev: pytest         (python -m pytest)

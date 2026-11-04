@@ -1,3 +1,4 @@
+import math
 import os
 import sqlite3
 import time
@@ -30,6 +31,8 @@ class AlertStore:
             return None
         self.last_alert[typ] = t_sec
 
+        if lat is not None and math.isnan(lat):    # no GPS fix: store NULL, not NaN
+            lat = lon = None
         snap = os.path.join(config.SNAPSHOT_DIR, f"{typ}_{t_sec:.1f}s.jpg")
         img = frame.copy()
         x1, y1, x2, y2 = [int(v) for v in det["box"]]
@@ -56,7 +59,8 @@ class AlertStore:
             "FROM alerts WHERE sent=0 ORDER BY priority, id").fetchall()
         sent = 0
         for id_, vt, wt, typ, conf, lat, lon, snap in rows:
-            data = {"alert_id": id_, "type": typ, "conf": conf, "lat": lat, "lon": lon,
+            data = {"alert_id": id_, "type": typ, "conf": conf,
+                    "lat": "" if lat is None else lat, "lon": "" if lon is None else lon,
                     "video_time": vt, "wall_time": wt}
             f = None
             try:

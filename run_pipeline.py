@@ -1,12 +1,21 @@
+import signal
 import time
 import config
 from frame_source import FrameSource
 from stage1_gate import Stage1Gate
-from stage2_detector import Stage2Detector
-from gps_sim import GPSSim
+from stage2_detector import Stage2Detector, Stage2Scheduler
+from gps_source import make_gps
 from alert_store import AlertStore
 
-gate, det, gps, store = Stage1Gate(), Stage2Detector(), GPSSim(), AlertStore()
+gate, det, gps, store = Stage1Gate(), Stage2Detector(), make_gps(), AlertStore()
+sched = Stage2Scheduler()
+
+
+def _on_sigterm(signum, frame):
+    raise KeyboardInterrupt          # systemd/docker stop -> same clean shutdown as Ctrl+C
+
+
+signal.signal(signal.SIGTERM, _on_sigterm)
 
 
 def forward(final=False):
@@ -31,11 +40,12 @@ try:
             last_forward = time.time()
 
         r = gate.check(frame)
-        if not r["trigger"]:
+        if not sched.should_run(r["trigger"]):
             continue
 
         ran += 1
         dets, ms = det.detect(frame)
+        sched.update(dets)
         lat, lon = gps.position(t)
 
         best = {}                                   # strongest detection per type
@@ -47,14 +57,17 @@ try:
             alert_id = store.maybe_add(d, frame, t, lat, lon)
             if alert_id:
                 print(f"ALERT #{alert_id}  t={t:5.1f}s  {d['type']:<6} conf={d['conf']:.2f}  "
-                      f"lat={lat:.6f} lon={lon:.6f}")
+                      f"lat={lat:.6f} lon={lon:.6f}")   # nan = no GPS fix yet
 except KeyboardInterrupt:
-    print("\n[stop] interrupted, flushing alerts")
+    print("\n[stop] stopping, flushing alerts")
 
 sent, buffered = forward(final=True)
-print(f"\nframes: {total} | Stage 2 ran on: {ran} | still buffered offline: {buffered}")
+print(f"\nframes: {total} | Stage 2 ran on: {ran} | skipped while confirmed: {sched.skipped} "
+      f"| still buffered offline: {buffered}")
 
 print("\nid   t(s)  type    conf   lat        lon        sent")
 for row in store.db.execute(
         "SELECT id, video_time, type, conf, lat, lon, sent FROM alerts ORDER BY priority, id"):
-    print(f"{row[0]:<4} {row[1]:5.1f} {row[2]:<7} {row[3]:.2f}  {row[4]:.6f} {row[5]:.6f} {row[6]}")
+    lat = "      none" if row[4] is None else f"{row[4]:.6f}"
+    lon = "      none" if row[5] is None else f"{row[5]:.6f}"
+    print(f"{row[0]:<4} {row[1]:5.1f} {row[2]:<7} {row[3]:.2f}  {lat} {lon} {row[6]}")

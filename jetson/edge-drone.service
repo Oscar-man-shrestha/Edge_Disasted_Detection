@@ -1,0 +1,19 @@
+# Installed by jetson/install_service.sh (REPO_DIR is filled in there).
+[Unit]
+Description=Drone edge disaster detection pipeline
+After=docker.service network-online.target edge-camera-bridge.service
+Requires=docker.service
+Wants=edge-camera-bridge.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/edge-drone
+Environment=DOCKER=docker
+ExecStartPre=-/usr/bin/jetson_clocks
+ExecStart=REPO_DIR/jetson/run_docker.sh python3 run_pipeline.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

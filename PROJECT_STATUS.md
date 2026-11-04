@@ -1,10 +1,11 @@
 # Project Status: Drone Edge Disaster Detection
 
 **Branch:** `temp-jetson-fixes` (not merged into `main`)
-**Date:** 2026-11-05
-**Hardware:** NVIDIA Jetson Nano Developer Kit B01 (P3450), in a 3D-printed case with a 40 mm fan and a Wi-Fi antenna
+**Last updated:** 2026-11-05
+**Hardware:** NVIDIA Jetson Nano Developer Kit B01 · Lenovo USB webcam · u-blox NEO-M8N GPS with compass
+**Hardware setup guide:** [JETSON.md](JETSON.md)
 
-This page explains what the project already had on `main`, what this branch changes, and what is still open.
+This page explains what the project already had on `main`, what this branch changes, how it was tested, and what is still open.
 
 ---
 
@@ -13,16 +14,19 @@ This page explains what the project already had on `main`, what this branch chan
 A drone-mounted pipeline that detects **fire, smoke and people** without internet, using edge compute only.
 
 ```
-camera / video
+USB webcam / video
    │  one frame every 0.5 s, resized to 640x360
    ▼
-Stage 1 gate (OpenCV, ~1 ms)      fire-coloured pixels  OR  large frame-to-frame change
+Stage 1 gate (OpenCV, a few ms)    fire-coloured pixels  OR  real change after cancelling drone motion
    │  3 flagged frames in a row
    ▼
-Stage 2 detector (YOLO)           YOLOv8n → person    +    fire_smoke.pt → fire, smoke
+Stage 2 scheduler                  every triggered frame until confirmed, then every 3rd
+   ▼
+Stage 2 detector (YOLO)            YOLOv8n → person    +    fire_smoke.pt → fire, smoke
    │
    ▼
-GPS tag (simulated flight path) → SQLite buffer on the drone → HTTP POST → Ground station (map + table)
+GPS tag (NEO-M8N, or simulated) → SQLite buffer on the drone → HTTP POST every 5 s → Ground station
+                                                                                    (map + table + SQLite)
 ```
 
 The idea is **adaptive compute**: the heavy YOLO models run only when the cheap gate sees something. This saves time and power on the Jetson.
@@ -37,26 +41,14 @@ The idea is **adaptive compute**: the heavy YOLO models run only when the cheap 
 | `frame_source.py` | Samples frames from a video or camera |
 | `stage1_gate.py` | Cheap colour + motion check |
 | `stage2_detector.py` | YOLO person + fire/smoke detection |
-| `gps_sim.py` | Simulated GPS along `data/flight_path.csv` at 5 m/s |
-| `alert_store.py` | 10 s cooldown per type, snapshot with box, SQLite, forwarding by priority (person > fire > smoke) |
+| `gps_sim.py` | Simulated GPS along `data/flight_path.csv` |
+| `alert_store.py` | Cooldown, snapshot, SQLite, forwarding by priority (person > fire > smoke) |
 | `run_pipeline.py` | Full pipeline |
 | `ground_station/app.py` | Flask server with a Leaflet map and alerts table |
 | `benchmark.py` | Gated pipeline vs. heavy model on every frame |
-| `export_trt.py` | TensorRT FP16 export on the Jetson |
-| `make_mixed_video.py` | Builds the calm-then-fire test video and its label file |
-| `test_*.py`, `check_fire_model.py` | Manual check scripts |
+| `export_trt.py`, `make_mixed_video.py`, `test_*.py`, `check_fire_model.py` | Tools and manual check scripts |
 
-### Laptop benchmark results (from `main`)
-
-| Metric | Result |
-|---|---|
-| Frames that woke Stage 2 | 57 of 107 (53.3%) |
-| Heavy model on every frame | 8.26 s |
-| Gated pipeline | 4.64 s (**43.8% saved**) |
-| False triggers on calm frames | 0 |
-| Fire confirmed after onset | 0.96 s |
-
-These numbers come from a laptop CPU on one test clip. **There are no Jetson numbers yet.**
+**Laptop benchmark on `main`** (CPU, one clip): Stage 2 woke on 53% of frames, **43.8% compute saved**, 0 false triggers on calm frames, fire confirmed 0.96 s after onset. **There are no Jetson numbers yet.**
 
 ---
 
@@ -64,96 +56,99 @@ These numbers come from a laptop CPU on one test clip. **There are no Jetson num
 
 ### Round 1: Jetson bring-up blockers
 
-| # | Problem on `main` | Fix | Files |
-|---|---|---|---|
-| 1 | The README told you to set `EDGE_DEVICE=0`, `EDGE_PERSON_WEIGHTS` and other variables, but **no code read them**. Jetson runs would quietly use the CPU and the `.pt` weights, so the TensorRT benchmark would have measured the wrong thing. | `config.py` now reads `EDGE_SOURCE`, `EDGE_DEVICE`, `EDGE_PERSON_WEIGHTS`, `EDGE_FIRE_WEIGHTS` and `EDGE_SERVER_URL` | `config.py` |
-| 2 | The Jetson CSI camera needs a GStreamer pipeline string, but every string source was treated as a **video file**, which gave wrong timing and frame skipping. | `EDGE_SOURCE=csi` builds an `nvarguscamerasrc` pipeline, opened with `CAP_GSTREAMER`. Camera settings are `CSI_*` in `config.py`. | `frame_source.py`, `config.py` |
-| 3 | The ground station only listened on `127.0.0.1`, so the Jetson could not reach it. | Uses `GS_HOST` / `GS_PORT` (e.g. `GS_HOST=0.0.0.0`) | `ground_station/app.py` |
-| 4 | Jetson notes were missing. | README: table of environment variables, power-supply note, YOLO26-on-JetPack-4 check, CSI camera instructions | `README.md` |
+| # | Problem on `main` | Fix |
+|---|---|---|
+| 1 | The README listed environment variables (`EDGE_DEVICE` etc.) that **no code read**, so Jetson runs would quietly use the CPU and the `.pt` weights | `config.py` reads them |
+| 2 | Camera pipeline strings were treated as video files (wrong timing) | Correct handling of `csi`, GStreamer and URL sources |
+| 3 | The ground station only listened on `127.0.0.1` | `GS_HOST` / `GS_PORT` |
 
 ### Round 2: making the alert link reliable
 
-| # | Problem on `main` | Fix | Files |
-|---|---|---|---|
-| 5 | Alerts were only sent **after the video ended**. A live camera never ends, so in a real flight **no alert would ever reach the ground station**. Ctrl+C also skipped the final send. | Sends buffered alerts every `FORWARD_INTERVAL_SEC` (5 s) during the run. Ctrl+C stops cleanly and does a final send. | `run_pipeline.py`, `config.py` |
-| 6 | When the link was down, each send attempt could freeze the frame loop for up to 3 s. | Connect timeout is now `FORWARD_CONNECT_TIMEOUT` (1 s) | `alert_store.py`, `config.py` |
-| 7 | One missing snapshot file crashed forwarding, and **every later alert stayed stuck**. | Sends the alert without the image and logs a warning | `alert_store.py` |
-| 8 | If an alert arrived but the reply was lost, the drone resent it and the ground station showed it **twice**. | The drone sends its `alert_id`. The station ignores repeats it has already seen and still replies 200. | `alert_store.py`, `ground_station/app.py` |
-| 9 | `check_fire_model.py` could only test one hardcoded video. | Takes an optional video path: `python check_fire_model.py my.mp4` | `check_fire_model.py` |
-
-### New settings
-
-| Variable / setting | Default | Meaning |
+| # | Problem on `main` | Fix |
 |---|---|---|
-| `EDGE_SOURCE` | `data/mixed_test.mp4` | video path, camera index (`0`), `csi`, or a GStreamer pipeline |
+| 4 | Alerts were only sent after the video ended. **A live camera never ends, so no alert would ever be sent.** | Sent every 5 s during the run. Ctrl+C, `docker stop` and `systemctl stop` all send what is left before exiting. |
+| 5 | A dead link froze the frame loop for 3 s per try | 1 s connect timeout |
+| 6 | One missing snapshot blocked every later alert | The alert is sent without the image |
+| 7 | A resend after a lost reply showed up twice | The station ignores alerts it has already received |
+
+### Round 3: features for the real hardware
+
+| # | What | Why it matters | Files |
+|---|---|---|---|
+| 8 | **Camera-motion compensation in Stage 1.** Tracks ~100 corners between frames, estimates the drone's movement, aligns the previous frame, and only then compares. | Without it, **a moving drone triggers Stage 2 on almost every frame** and the gating saves nothing. In the test, panning went from 15% "changed pixels" (triggers) to 0%, while a real moving object is still caught. | `stage1_gate.py` |
+| 9 | **Stage 2 scheduler.** Once a fire or person is confirmed, YOLO runs only every 3rd triggered frame while detections continue. It goes back to every frame when the detections stop. | Alerts have a 10 s cooldown, so the skipped runs would only have produced duplicates. Saves GPU time and heat. In the test, Stage 2 ran 4 times instead of 10 during a sustained fire. | `stage2_detector.py` |
+| 10 | **NEO-M8N GPS support** (`EDGE_GPS=nmea`). Reads standard NMEA (RMC + GGA) over the Nano UART or a USB-serial adapter, finds the baud rate automatically, and ignores fixes older than 5 s. | Real coordinates on alerts. Alerts without a fix are still sent and show "no fix". | `gps_source.py` |
+| 11 | MAVLink GPS (`EDGE_GPS=mavlink`) | For later, if a flight controller is added | `gps_source.py` |
+| 12 | **USB webcam tuning:** asks for MJPG at 1280×720 with a 1-frame buffer | The Lenovo webcam runs at full frame rate with less lag | `frame_source.py` |
+| 13 | **Power and energy measurement.** Reads the Nano's power sensor, with `tegrastats` as a fallback. | Energy per frame is the key result for an edge project | `power_monitor.py` |
+| 14 | **Better benchmark:** energy (J/frame), uses the scheduler, `--source` / `--tag` options, results saved per tag | Runs with PyTorch and with TensorRT no longer overwrite each other | `benchmark.py` |
+| 15 | **Ground station keeps alerts after a restart** (SQLite). The map works offline (plain grid when map tiles cannot load). Added a `/health` endpoint. | Field use without internet | `ground_station/app.py` |
+| 16 | **Jetson tooling:** Docker image, run script, one-time setup script, autostart at boot (systemd), CSI camera bridge, TensorRT and ONNX export | Setting up the board takes a few commands; the drone runs with no monitor attached | `jetson/*`, `export_*.py` |
+| 17 | **Automated tests:** 28 pytest tests | Teammates can check changes without the models or the board | `tests/`, `pytest.ini` |
+| 18 | **Hardware guide** for our parts: power, GPS wiring, webcam, bring-up order, troubleshooting | | `JETSON.md` |
+
+### All settings (environment variables)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EDGE_SOURCE` | `data/mixed_test.mp4` | video, `0` (USB webcam), `csi`, GStreamer pipeline, or MJPEG URL |
 | `EDGE_DEVICE` | `cpu` | `0` = Jetson GPU |
-| `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | can point to `.engine` or `.onnx` files |
-| `EDGE_SERVER_URL` | `http://localhost:5000/alert` | ground-station address |
-| `GS_HOST` / `GS_PORT` | `127.0.0.1` / `5000` | ground-station bind address |
-| `FORWARD_INTERVAL_SEC` | `5` | how often alerts are sent during a run |
-| `FORWARD_CONNECT_TIMEOUT` | `1.0` | seconds before giving up on a dead link |
-| `CSI_SENSOR_ID`, `CSI_CAPTURE_*`, `CSI_FLIP` | `0`, 1280x720@30, `0` | CSI camera settings |
+| `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | `.pt`, `.engine` or `.onnx` |
+| `EDGE_SERVER_URL` | `http://localhost:5000/alert` | ground station |
+| `EDGE_GPS` | `sim` | `sim`, `nmea` (M8N) or `mavlink` |
+| `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / auto | M8N serial port |
+| `EDGE_MOTION_COMP` | `1` | Stage 1 motion compensation |
+| `EDGE_STAGE2_EVERY_N` | `3` | Stage 2 frequency while confirmed (`1` = old behaviour) |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `127.0.0.1` / `5000` / `ground_station/received` | ground station |
 
 ---
 
-## 4. How the changes were tested
+## 4. How it was tested
 
-These checks were run on a laptop (macOS), **not on the Jetson**:
+**Automated: `python -m pytest`, 28 of 28 pass** (laptop, no models needed)
 
-- **Settings:** with no variables set, defaults are unchanged. With variables set, they are picked up (e.g. `EDGE_DEVICE=0` gives `'0'`, and an `.engine` path is used).
-- **Camera source:** `csi` builds the right pipeline and opens it with GStreamer. Integers and real files are handled as before. (OpenCV was stubbed for this check.)
-- **Alert link, end to end against a real ground-station server:**
-  - Server offline: all 3 alerts stay buffered and the attempt takes 0.3 s.
-  - Server online with one snapshot deleted: all 3 alerts arrive, and the one without an image still shows up.
-  - Resending every alert to simulate a lost reply: the station still shows 3 alerts, not 6.
-  - The station lists alerts in the order person, fire, smoke.
-- **Full pipeline on a synthetic video with a stubbed YOLO:** it tried to send every frame during the run, raised the fire alert once (cooldown works), kept the alert buffered with no server, and did not stall.
+| Area | What the tests check |
+|---|---|
+| Stage 1 | orange triggers after 3 frames; a still scene never triggers; panning **triggers without** compensation and **does not trigger with** it; a real moving object is still caught while panning; a blank frame does not crash it |
+| Scheduler | every frame until confirmed; every 3rd while confirmed; resets when the trigger drops or a run finds nothing; `N=1` matches the old behaviour |
+| GPS (NMEA) | checksum; RMC and GGA parsing; south/west coordinates negative; no-fix sentences; **end to end over a fake serial port**: auto-baud, no fix → fix → stale fix becomes "no fix" |
+| GPS (sim) | start, end and hold position; speed |
+| Power | parsing `tegrastats` output from JetPack 4 and JetPack 5; energy calculation; still works with no sensor |
+| Alert link | offline buffering; cooldown; person threshold; **real HTTP to the ground station**: priority order, missing snapshot, alert with no GPS fix, resends ignored, alerts kept after a station restart |
 
-**Not tested yet:** real YOLO models, a real camera, Ctrl+C on a live camera, anything on the Jetson.
+**Manual (laptop):**
+- Full `run_pipeline.py` and `benchmark.py` on a made-up video with a stand-in for YOLO: alerts raised, the scheduler skipped 6 of 10 Stage 2 runs, and buffered alerts did not stall the loop.
+- Camera bridge: served a video as an MJPEG stream, which `FrameSource` read as a camera.
+
+**Not tested yet (needs the board or the hardware):** real YOLO and TensorRT on the Nano, power readings, the Lenovo webcam on the Nano, the M8N wired to the UART, Docker and systemd on the board, Stage 1 motion compensation on real drone footage, and Stage 1 speed on the Nano's CPU (about 8 ms on the laptop).
 
 ---
 
-## 5. Running on the Jetson Nano
+## 5. Running it
 
-Power it from a **5V 4A barrel jack with the J48 jumper fitted**, then:
+Follow **[JETSON.md](JETSON.md)**. Short version:
 
 ```bash
-sudo nvpmodel -m 0 && sudo jetson_clocks
-sudo docker run -it --ipc=host --runtime=nvidia -v $(pwd):/work -w /work -p 5000:5000 \
-     -v /tmp/argus_socket:/tmp/argus_socket \
-     ultralytics/ultralytics:latest-jetson-jetpack4
-pip install flask requests
-
-# 1. Does the fire model (YOLO26) load on JetPack 4?  <- check this first
-EDGE_DEVICE=0 python check_fire_model.py
-
-# 2. PyTorch benchmark on the GPU
-EDGE_DEVICE=0 python benchmark.py
-
-# 3. TensorRT
-python export_trt.py
-EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine \
-EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine python benchmark.py
-
-# 4. Live run with alerts sent to a laptop
-#    laptop:  GS_HOST=0.0.0.0 python ground_station/app.py
-EDGE_DEVICE=0 EDGE_SOURCE=csi EDGE_SERVER_URL=http://<laptop-ip>:5000/alert python run_pipeline.py
+jetson/setup_nano.sh                                                          # once
+EDGE_DEVICE=0 jetson/run_docker.sh python3 check_fire_model.py data/mixed_test.mp4
+EDGE_DEVICE=0 jetson/run_docker.sh python3 benchmark.py --tag nano_pytorch
+jetson/run_docker.sh python3 export_trt.py
+EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine \
+  jetson/run_docker.sh python3 benchmark.py --tag nano_trt
 ```
-
-Copy these to the board as well, since they are not in git: `weights/*.pt`, `data/mixed_test.mp4`, `data/mixed_test_labels.json`.
 
 ---
 
 ## 6. Still open
 
-| Priority | Item | Why it matters |
+| Priority | Item | Notes |
 |---|---|---|
-| High | **Check that YOLO26 loads on JetPack 4.** If it does not, export to ONNX on the laptop. | The fire model may not run on the Nano at all. |
-| High | **Jetson benchmark and power numbers** (`tegrastats`) | This is the main result of the project. |
-| High | **Stage 1 on a moving drone:** the motion signal assumes a still camera. | Drone movement will keep waking Stage 2 and remove most of the saving. Needs motion compensation or a colour-led gate. |
-| Medium | Skip Stage 2 on some frames after a confirmed fire | Saves GPU time and heat while a fire stays in view |
-| Medium | Test person detection on aerial footage | The person model is untested on video |
-| Medium | Stress-test Stage 1 on orange terrain, sunsets and fast motion | Risk of false triggers |
-| Low | The ground-station map needs internet (Leaflet and map tiles) | Offline in the field, the table works but the map is blank |
-| Low | Ground-station alerts live in memory | Restarting the station loses the list. Snapshots are kept on disk. |
-| Low | Real GPS (e.g. MAVLink from the flight controller) instead of the simulation | Needed for real flights |
+| High | **Run the bring-up order in JETSON.md on the Nano** | Steps 1–7 |
+| High | **Check that YOLO26 loads on JetPack 4** | Fallbacks are in JETSON.md: rebuild with a newer Ultralytics, or ONNX |
+| High | **Jetson benchmark: PyTorch vs. TensorRT, time and energy** | The main result of the project |
+| High | **Wire and test the M8N outdoors** | Check the cable's wire order first (see JETSON.md) |
+| Medium | Test Stage 1 on real drone footage | Tune `DIFF_FRACTION`; measure motion-compensation time on the Nano CPU |
+| Medium | Stress-test the colour gate on orange terrain, sunsets and red roofs | Risk of false triggers |
+| Medium | Test person detection on aerial footage | The YOLOv8n COCO model is weak on small, top-down people. May need a model fine-tuned on aerial images (e.g. VisDrone). |
+| Low | Use the compass for heading | Lets you estimate where a detection is on the ground, not just where the drone is |
+| Low | Alerts are sent over HTTP with no authentication | Fine on a private link; add a shared key before any public network |

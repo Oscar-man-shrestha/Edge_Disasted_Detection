@@ -35,6 +35,8 @@ class FrameSource:
             self.cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
         else:
             self.cap = cv2.VideoCapture(source)
+        if isinstance(source, int):
+            self._setup_usb_camera()
         if not self.cap.isOpened():
             hint = " (is OpenCV built with GStreamer? check cv2.getBuildInformation())" if is_gst else ""
             raise RuntimeError(f"Could not open source: {source}{hint}")
@@ -46,6 +48,18 @@ class FrameSource:
         self.skip = max(1, int(self.fps * interval))
         self.frame_index = 0
         self._last_time = 0.0
+
+    def _setup_usb_camera(self):
+        """Ask a USB webcam for MJPG at USB_CAPTURE_* and a 1-frame buffer (less lag).
+        Cameras ignore what they do not support; we print what we actually got."""
+        c = self.cap
+        c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*config.USB_FOURCC))
+        c.set(cv2.CAP_PROP_FRAME_WIDTH, config.USB_CAPTURE_WIDTH)
+        c.set(cv2.CAP_PROP_FRAME_HEIGHT, config.USB_CAPTURE_HEIGHT)
+        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        print("[camera] usb %dx%d @ %.0f fps" % (c.get(cv2.CAP_PROP_FRAME_WIDTH),
+                                               c.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                                               c.get(cv2.CAP_PROP_FPS)))
 
     def frames(self):
         while True:
