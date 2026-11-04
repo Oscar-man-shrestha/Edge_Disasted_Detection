@@ -23,6 +23,7 @@
   font-size: 14px;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
@@ -96,13 +97,16 @@ h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06e
   grid-template-areas: "live map feed";
 }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-height: 0; min-width: 0; }
-.live { grid-area: live; padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.livepanel { grid-area: live; padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
 .mapwrap { grid-area: map; position: relative; overflow: hidden; min-height: 420px; }
 .feed { grid-area: feed; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; }
 @media (max-width: 1199px) {
-  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "map map" "live feed"; }
+  /* narrower screens: the page scrolls instead of squeezing panels into the viewport */
+  .grid { flex: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "map map" "live feed"; align-items: start; }
   .mapwrap { min-height: 52vh; }
+  .livepanel, .feed { overflow: visible; }
+  .alert-list { overflow: visible; flex: none; }
 }
 @media (max-width: 799px) {
   .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map" "live" "feed"; padding: 8px; gap: 8px; }
@@ -110,7 +114,7 @@ h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06e
   .brand { width: 100%; }
   .mission { padding: 0; }
   .mapwrap { min-height: 46vh; }
-  .feed { max-height: none; }
+  .mapwrap .map-legend { bottom: auto; top: 54px; left: auto; right: 10px; flex-direction: column; gap: 4px; }
 }
 
 /* ---------------------------------------------------------------- live panel */

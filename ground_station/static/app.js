@@ -74,7 +74,7 @@
   var map = L.map("map", { zoomControl: true, attributionControl: true, worldCopyJump: true })
     .setView([12.9715, 77.5905], 16);
   L.tileLayer("/tiles/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "&copy; OpenStreetMap contributors (cached offline)",
+    maxZoom: 19, attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
   var trail = L.polyline([], { color: "#e8ebf1", weight: 2.5, opacity: 0.7, dashArray: "6 6" }).addTo(map);
   var alertLayer = L.layerGroup().addTo(map);

@@ -37,7 +37,7 @@
   <div class="kpi"><span>Alerts</span><b>{{ alerts|length }}</b></div>
   {% for t in ["person", "fire", "smoke"] %}
   <div class="kpi"><span>{{ t }}</span><b>{{ ctx.counts[t].total }}</b>
-    <div class="muted">{{ ctx.counts[t].resolved }} resolved · {{ ctx.counts[t].new }} open</div></div>
+    <div class="muted">{{ ctx.counts[t].resolved }} resolved · {{ ctx.counts[t].total - ctx.counts[t].resolved }} open</div></div>
   {% endfor %}
   <div class="kpi"><span>Distance flown</span><b>{{ "%.0f"|format(ctx.distance_m) }} m</b></div>
   <div class="kpi"><span>Tracked time</span><b>{% if ctx.duration_s %}{{ (ctx.duration_s // 60)|int }} min {{ (ctx.duration_s % 60)|int }} s{% else %}—{% endif %}</b></div>

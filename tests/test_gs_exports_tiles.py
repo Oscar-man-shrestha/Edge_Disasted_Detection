@@ -141,3 +141,12 @@ def test_prefetch_refuses_too_many_and_zoom_19(capsys):
                        "--dry-run"]) == 2
     assert tiles_main(["prefetch", "--bbox", "12.97,77.59,12.971,77.591", "--zoom", "16-17",
                        "--dry-run"]) == 0
+
+
+def test_report_counts_acknowledged_as_open(tmp_path):
+    c = create_app(str(tmp_path / "gs"), watcher=False).test_client()
+    c.post("/alert", data={"alert_id": "1", "type": "person", "conf": "0.9", "lat": "12.97",
+                           "lon": "77.59", "wall_time": "w1"})
+    c.post("/api/alerts/1", json={"status": "acknowledged"})
+    html = c.get("/report/1").get_data(as_text=True)
+    assert "0 resolved · 1 open" in html
