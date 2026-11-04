@@ -47,19 +47,31 @@ class AlertStore:
         self.db.commit()
         return cur.lastrowid
 
-    def forward_pending(self):
-        """Try to POST unsent alerts, most important first. Stops at the first failure.
+    def counts(self):
+        r = self.db.execute("SELECT COALESCE(SUM(sent=0),0), COALESCE(SUM(sent=1),0) "
+                            "FROM alerts").fetchone()
+        return {"buffered": int(r[0]), "sent": int(r[1])}
+
+    def forward_pending(self, base_url=None, headers=None):
+        """POST unsent alerts to <base_url>/alert, most important first; stop at the first failure.
 
         alert_id + wall_time let the ground station drop a resend whose first copy
         arrived but whose reply was lost. A missing snapshot does not block the alert.
         """
         import requests
+        if base_url is None:                       # Task 8 removes this fallback
+            if config.SERVER_URL == "auto":
+                return 0, self.counts()["buffered"]
+            base_url = config.SERVER_URL
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/alert"):
+            base_url = base_url[:-len("/alert")]
         rows = self.db.execute(
             "SELECT id, video_time, wall_time, type, conf, lat, lon, snapshot "
             "FROM alerts WHERE sent=0 ORDER BY priority, id").fetchall()
         sent = 0
         for id_, vt, wt, typ, conf, lat, lon, snap in rows:
-            data = {"alert_id": id_, "type": typ, "conf": conf,
+            data = {"alert_id": id_, "drone_id": config.DRONE_ID, "type": typ, "conf": conf,
                     "lat": "" if lat is None else lat, "lon": "" if lon is None else lon,
                     "video_time": vt, "wall_time": wt}
             f = None
@@ -68,7 +80,7 @@ class AlertStore:
                     f = open(snap, "rb")
                 else:
                     print(f"[link] snapshot missing for alert #{id_}, sending without image")
-                r = requests.post(config.SERVER_URL, data=data,
+                r = requests.post(base_url + "/alert", data=data, headers=headers or {},
                                   files={"snapshot": f} if f else None,
                                   timeout=(config.FORWARD_CONNECT_TIMEOUT, 3))
                 if r.status_code != 200:
