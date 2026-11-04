@@ -5,6 +5,7 @@
 Environment: GS_HOST (default 0.0.0.0), GS_PORT (5000), GS_DATA_DIR (ground_station/received),
 GS_LINK_KEY (shared key the drone must send), GS_BEACON_TARGETS, GS_BEACON_PORT.
 """
+import json
 import os
 import socket
 import threading
@@ -12,6 +13,7 @@ import time
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 
+import exports
 from discovery import DEFAULT_BEACON_PORT, Beacon
 from events import EventBus
 from store import Store
@@ -195,6 +197,35 @@ def create_app(data_dir=None, link_key="", watcher=True):
         m = store.new_mission(name.strip()[:80] if name and name.strip() else None)
         bus.publish("mission", {"mission": m})
         return jsonify(ok=True, mission=m)
+
+    EXPORT_MIME = {"csv": "text/csv", "geojson": "application/geo+json",
+                   "kml": "application/vnd.google-earth.kml+xml"}
+
+    @app.route("/api/missions/<int:mid>/export.<fmt>")
+    def export(mid, fmt):
+        m = store.mission(mid)
+        if m is None or fmt not in EXPORT_MIME:
+            abort(404)
+        alerts, track = _sorted(store.alerts(mid)), store.track(mid)
+        if fmt == "csv":
+            body = exports.to_csv(alerts)
+        elif fmt == "geojson":
+            body = json.dumps(exports.to_geojson(alerts, track), indent=1)
+        else:
+            body = exports.to_kml(m, alerts, track)
+        resp = app.response_class(body, mimetype=EXPORT_MIME[fmt])
+        resp.headers["Content-Disposition"] = 'attachment; filename="mission-%d.%s"' % (mid, fmt)
+        return resp
+
+    @app.route("/report/<int:mid>")
+    def report(mid):
+        m = store.mission(mid)
+        if m is None:
+            abort(404)
+        alerts, track = _sorted(store.alerts(mid)), store.track(mid)
+        return render_template("report.html", mission=m, alerts=alerts,
+                               ctx=exports.report_context(m, alerts, track),
+                               generated=time.strftime("%Y-%m-%d %H:%M"))
 
     @app.route("/snap/<path:name>")
     def snap(name):

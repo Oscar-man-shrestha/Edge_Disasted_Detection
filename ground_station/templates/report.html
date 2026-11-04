@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ mission.name }} · Mission report</title>
+<style>
+  :root { --ink:#16181d; --muted:#5d6470; --line:#dde1e7; --person:#2f7fe0; --fire:#e2552b; --smoke:#7d8592; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f4f6f9; }
+  main { max-width: 960px; margin: 24px auto; background: #fff; padding: 32px 36px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 22px; } .sub { color: var(--muted); }
+  .print { padding: 8px 14px; border: 1px solid var(--ink); background: var(--ink); color: #fff; border-radius: 6px; cursor: pointer; font: inherit; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }
+  .kpi { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi b { display: block; font-size: 20px; } .kpi span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  tr { break-inside: avoid; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; color: #fff; font-weight: 600; font-size: 12px; }
+  .person { background: var(--person); } .fire { background: var(--fire); } .smoke { background: var(--smoke); }
+  img { height: 54px; border-radius: 4px; }
+  .muted { color: var(--muted); }
+  h2 { font-size: 15px; margin: 24px 0 4px; }
+  @media print {
+    body { background: #fff; } main { box-shadow: none; margin: 0; max-width: none; padding: 0; }
+    .print { display: none; } a { color: inherit; text-decoration: none; }
+  }
+</style></head>
+<body><main>
+<header>
+  <div><h1>{{ mission.name }}</h1>
+    <div class="sub">Mission report · started {{ mission.started_at }}{% if mission.ended_at %} · ended {{ mission.ended_at }}{% endif %} · generated {{ generated }}</div></div>
+  <button class="print" onclick="window.print()">Print / Save as PDF</button>
+</header>
+<section class="kpis">
+  <div class="kpi"><span>Alerts</span><b>{{ alerts|length }}</b></div>
+  {% for t in ["person", "fire", "smoke"] %}
+  <div class="kpi"><span>{{ t }}</span><b>{{ ctx.counts[t].total }}</b>
+    <div class="muted">{{ ctx.counts[t].resolved }} resolved · {{ ctx.counts[t].new }} open</div></div>
+  {% endfor %}
+  <div class="kpi"><span>Distance flown</span><b>{{ "%.0f"|format(ctx.distance_m) }} m</b></div>
+  <div class="kpi"><span>Tracked time</span><b>{% if ctx.duration_s %}{{ (ctx.duration_s // 60)|int }} min {{ (ctx.duration_s % 60)|int }} s{% else %}—{% endif %}</b></div>
+</section>
+{% if ctx.first_detection %}
+<h2>First detections</h2>
+<p class="muted">{% for t, w in ctx.first_detection.items() %}{{ t }}: {{ w }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+{% if ctx.bbox %}<p class="muted">Area: {{ "%.5f"|format(ctx.bbox[0]) }}, {{ "%.5f"|format(ctx.bbox[1]) }} → {{ "%.5f"|format(ctx.bbox[2]) }}, {{ "%.5f"|format(ctx.bbox[3]) }}</p>{% endif %}
+<h2>Alerts</h2>
+<table><thead><tr><th>#</th><th>Type</th><th>Conf</th><th>Time</th><th>Position</th><th>Status</th><th>Note</th><th>Snapshot</th></tr></thead>
+<tbody>
+{% for a in alerts %}
+<tr><td>{{ a.id }}</td><td><span class="badge {{ a.type }}">{{ a.type }}</span></td><td>{{ "%.2f"|format(a.conf) }}</td>
+<td>{{ a.wall_time }}</td>
+<td>{% if a.lat is not none %}{{ "%.6f"|format(a.lat) }}, {{ "%.6f"|format(a.lon) }}{% else %}<span class="muted">no fix</span>{% endif %}</td>
+<td>{{ a.status }}</td><td>{{ a.note or "" }}</td>
+<td>{% if a.snapshot %}<img src="/snap/{{ a.snapshot }}" alt="">{% endif %}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">No alerts in this mission.</td></tr>{% endfor %}
+</tbody></table>
+</main></body></html>
