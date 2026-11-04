@@ -7,6 +7,7 @@ locally (SQLite), and forwarded to a ground station when a link exists.
 
 camera -> Stage 1 gate -> Stage 2 YOLO -> GPS tag -> SQLite store -> live link -> ground station dashboard
 
+**Start here:** [GUIDE.md](GUIDE.md) is the complete step-by-step guide to building, wiring, connecting and running everything.
 Current status, recent changes and open work: see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Setup (laptop)

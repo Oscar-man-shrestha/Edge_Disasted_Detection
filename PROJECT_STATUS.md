@@ -3,7 +3,7 @@
 **Branch:** `temp-jetson-fixes` (not merged into `main`)
 **Last updated:** 2026-11-05
 **Hardware:** NVIDIA Jetson Nano Developer Kit B01 · Lenovo USB webcam · u-blox NEO-M8N GPS with compass
-**Hardware setup guide:** [JETSON.md](JETSON.md)
+**Step-by-step build & run guide:** [GUIDE.md](GUIDE.md) · **Jetson reference:** [JETSON.md](JETSON.md)
 
 This page explains what the project already had on `main`, what this branch changes, how it was tested, and what is still open.
 

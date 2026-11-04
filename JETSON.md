@@ -1,6 +1,6 @@
 # Jetson Nano bring-up guide
 
-How to get the pipeline running on our hardware, step by step. For the project overview and change log, see [PROJECT_STATUS.md](PROJECT_STATUS.md).
+How to get the pipeline running on our hardware. For the complete start-to-finish walkthrough (laptop, flashing, wiring, field network, mission checklist, coding), see **[GUIDE.md](GUIDE.md)**. For the project overview and change log, see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Our hardware
 
