@@ -74,3 +74,70 @@ def test_export_routes(tmp_path):
     assert c.get("/api/missions/1/export.exe").status_code == 404
     assert c.get("/report/99").status_code == 404
     assert c.get("/api/missions/99/export.csv").status_code == 404
+
+
+# ---------------------------------------------------------------- tiles
+from flask import Flask  # noqa: E402
+
+from tiles import MAX_PREFETCH, main as tiles_main, tile_range, tiles_blueprint  # noqa: E402
+
+PNG = b"\x89PNG\r\n\x1a\nfake"
+
+
+def tile_client(tmp_path, fetch):
+    app = Flask(__name__)
+    app.register_blueprint(tiles_blueprint(str(tmp_path / "tiles"), fetch=fetch))
+    return app.test_client()
+
+
+def test_tile_served_from_cache_without_fetch(tmp_path):
+    p = tmp_path / "tiles" / "15" / "23400" / "15200.png"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(PNG)
+
+    def boom(z, x, y):
+        raise AssertionError("should not fetch")
+    r = tile_client(tmp_path, boom).get("/tiles/15/23400/15200.png")
+    assert r.status_code == 200 and r.data == PNG and r.mimetype == "image/png"
+
+
+def test_tile_fetched_then_cached(tmp_path):
+    calls = []
+
+    def fetch(z, x, y):
+        calls.append((z, x, y))
+        return PNG
+    c = tile_client(tmp_path, fetch)
+    assert c.get("/tiles/3/2/1.png").data == PNG
+    assert c.get("/tiles/3/2/1.png").data == PNG
+    assert calls == [(3, 2, 1)]
+    assert (tmp_path / "tiles" / "3" / "2" / "1.png").read_bytes() == PNG
+
+
+def test_tile_offline_404(tmp_path):
+    assert tile_client(tmp_path, lambda z, x, y: None).get("/tiles/3/2/1.png").status_code == 404
+
+
+def test_tile_bad_coords_404(tmp_path):
+    c = tile_client(tmp_path, lambda z, x, y: PNG)
+    assert c.get("/tiles/a/b/c.png").status_code == 404
+    assert c.get("/tiles/5/99999/1.png").status_code == 404     # x >= 2**z
+    assert c.get("/tiles/20/1/1.png").status_code == 404        # beyond zoom 19
+
+
+def test_tile_range_counts():
+    tiles = tile_range(12.970, 77.590, 12.973, 77.5915, 17, 17)
+    xs = {x for _, x, _ in tiles}
+    ys = {y for _, _, y in tiles}
+    assert len(tiles) == len(xs) * len(ys) and 1 <= len(tiles) <= 9
+    assert all(z == 17 for z, _, _ in tiles)
+    assert len(tile_range(12.970, 77.590, 12.973, 77.5915, 14, 15)) <= 4
+
+
+def test_prefetch_refuses_too_many_and_zoom_19(capsys):
+    assert MAX_PREFETCH == 3000
+    assert tiles_main(["prefetch", "--bbox", "12,77,13,78", "--zoom", "14-18", "--dry-run"]) == 2
+    assert tiles_main(["prefetch", "--bbox", "12.97,77.59,12.971,77.591", "--zoom", "19",
+                       "--dry-run"]) == 2
+    assert tiles_main(["prefetch", "--bbox", "12.97,77.59,12.971,77.591", "--zoom", "16-17",
+                       "--dry-run"]) == 0
