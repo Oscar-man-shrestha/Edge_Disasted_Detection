@@ -1,6 +1,7 @@
 # Central settings. Change values here, never inside other files.
 # A few values can be overridden by environment variables (see README).
 import os
+import socket
 
 
 def _env_bool(name, default):
@@ -71,12 +72,23 @@ DRONE_SPEED_MPS = 5.0          # simulated ground speed, metres per second
 
 # --- Alerts ---
 DB_PATH = os.environ.get("EDGE_DB_PATH", "data/alerts.db")
-SERVER_URL = os.environ.get("EDGE_SERVER_URL", "http://localhost:5000/alert")
+# "auto" = find the ground station by its UDP beacon; or a fixed "http://host:port"
+SERVER_URL = os.environ.get("EDGE_SERVER_URL", "auto")
 ALERT_COOLDOWN_SEC = 10        # same alert type stays quiet this long after firing
 PERSON_ALERT_CONF = 0.5        # people need higher confidence than fire/smoke
 SNAPSHOT_DIR = "data/snapshots"
-FORWARD_INTERVAL_SEC = 5       # during a run, try to send buffered alerts this often (wall clock)
-FORWARD_CONNECT_TIMEOUT = 1.0  # short, so a dead link does not stall the frame loop
+FORWARD_INTERVAL_SEC = 5       # (removed in Task 8; replaced by ALERT_FORWARD_INTERVAL_SEC)
+FORWARD_CONNECT_TIMEOUT = 1.0  # short, so a dead link does not stall the link thread
+
+# --- Live link to the ground station (link.py) ---
+DRONE_ID = os.environ.get("EDGE_DRONE_ID", socket.gethostname())
+LINK_KEY = os.environ.get("EDGE_LINK_KEY", "")      # must match GS_LINK_KEY if the station sets one
+DISCOVERY_PORT = 5005                               # UDP beacon port of the ground station
+TELEMETRY_INTERVAL_SEC = 1.0
+PREVIEW_INTERVAL_SEC = 1.5
+PREVIEW_WIDTH = 480
+PREVIEW_QUALITY = 60
+ALERT_FORWARD_INTERVAL_SEC = 2.0
 
 # --- Power measurement (Jetson only; ignored elsewhere) ---
 POWER_SAMPLE_SEC = 0.1         # how often the power monitor reads the INA3221 sensor

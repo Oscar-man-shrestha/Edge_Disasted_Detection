@@ -16,6 +16,7 @@ class GPSSim:
         for a, b in zip(self.pts, self.pts[1:]):
             self.cum.append(self.cum[-1] + self._dist(a, b))
         self.total = self.cum[-1]
+        self._seg = 1                         # segment index of the last position()
 
     @staticmethod
     def _dist(a, b):
@@ -30,5 +31,22 @@ class GPSSim:
                 seg = self.cum[i] - self.cum[i - 1]
                 f = 0.0 if seg == 0 else (d - self.cum[i - 1]) / seg
                 a, b = self.pts[i - 1], self.pts[i]
+                self._seg = i
                 return a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
+        self._seg = len(self.pts) - 1
         return self.pts[-1]
+
+    def _bearing(self, i):
+        a, b = self.pts[i - 1], self.pts[i]
+        dlat = b[0] - a[0]
+        dlon = (b[1] - a[1]) * math.cos(math.radians((a[0] + b[0]) / 2))
+        return math.degrees(math.atan2(dlon, dlat)) % 360.0
+
+    def status(self, t_sec):
+        """Telemetry 'gps' block (see link protocol); the sim always has a fix."""
+        lat, lon = self.position(t_sec)
+        moving = 0 <= t_sec * self.speed < self.total
+        return {"mode": "sim", "fix": True, "lat": lat, "lon": lon, "alt_m": None,
+                "sats": None, "hdop": None,
+                "speed_mps": self.speed if moving else 0.0,
+                "course_deg": round(self._bearing(self._seg), 1), "age_s": 0.0}

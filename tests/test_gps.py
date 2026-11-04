@@ -19,3 +19,12 @@ def test_make_gps_sim(tmp_config):
 def test_make_gps_unknown():
     with pytest.raises(ValueError):
         make_gps("nope")
+
+
+def test_sim_status_has_course_and_speed(tmp_config):
+    st = GPSSim().status(10)
+    assert st["mode"] == "sim"
+    assert st["fix"] is True
+    assert st["course_deg"] == pytest.approx(0, abs=1)      # first leg heads north
+    assert st["speed_mps"] == 5.0
+    assert st["lat"] is not None and st["lon"] is not None

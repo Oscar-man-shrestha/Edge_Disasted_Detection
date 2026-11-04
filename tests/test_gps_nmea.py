@@ -79,9 +79,16 @@ def test_reader_over_pseudo_serial_port():
         lat, lon = gps.position()
         assert lat == pytest.approx(12.9715) and lon == pytest.approx(77.5905)
         assert gps.sats == 9
+        st = gps.status()
+        assert st["fix"] is True and st["mode"] == "nmea"
+        assert st["sats"] == 9 and st["alt_m"] == 920.4
+        assert st["speed_mps"] == pytest.approx(0.257, abs=1e-3)
+        assert st["course_deg"] == 84.4
         state["lines"] = [GGA_NOFIX]           # lost fix: old one goes stale
         time.sleep(0.9)
         assert math.isnan(gps.position()[0])
+        st = gps.status()
+        assert st["fix"] is False and st["lat"] is None
     finally:
         state["stop"] = True
         gps.close()

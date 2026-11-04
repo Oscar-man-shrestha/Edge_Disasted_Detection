@@ -92,6 +92,8 @@ class NmeaGPS:
         self.sats = 0
         self.hdop = None
         self.alt_m = None
+        self.speed_mps = None
+        self.course_deg = None
         self.sentences = 0
         self._stop = threading.Event()
         self.ser = self._open()
@@ -128,6 +130,8 @@ class NmeaGPS:
                 good = msg["quality"] > 0
             else:
                 good = msg["valid"]
+                if good:
+                    self.speed_mps, self.course_deg = msg["speed_mps"], msg["course"]
             if good and msg["lat"] is not None and msg["lon"] is not None:
                 self.fix = (msg["lat"], msg["lon"])
                 self.fix_time = time.time()
@@ -141,6 +145,17 @@ class NmeaGPS:
         if self.fix is None or age is None or age > self.max_fix_age:
             return NAN
         return self.fix
+
+    def status(self):
+        lat, lon = self.position()
+        fix = not math.isnan(lat)
+        age = self.age_sec()
+        return {"mode": "nmea", "fix": fix,
+                "lat": lat if fix else None, "lon": lon if fix else None,
+                "alt_m": self.alt_m, "sats": self.sats, "hdop": self.hdop,
+                "speed_mps": self.speed_mps if fix else None,
+                "course_deg": self.course_deg if fix else None,
+                "age_s": None if age is None else round(age, 2)}
 
     def close(self):
         self._stop.set()
@@ -164,6 +179,7 @@ class MavlinkGPS:
             self.conn = mavutil.mavlink_connection(url)
         self.fix = None                         # (lat, lon)
         self.fix_time = None
+        self.alt_m = self.speed_mps = self.course_deg = None
         self._stop = threading.Event()
         threading.Thread(target=self._loop, daemon=True).start()
         deadline = time.time() + wait_fix_sec
@@ -179,6 +195,9 @@ class MavlinkGPS:
                 continue
             self.fix = (msg.lat / 1e7, msg.lon / 1e7)
             self.fix_time = time.time()
+            self.alt_m = msg.alt / 1000.0
+            self.speed_mps = math.hypot(msg.vx, msg.vy) / 100.0
+            self.course_deg = None if msg.hdg == 65535 else msg.hdg / 100.0
 
     def position(self, t_sec=None):
         """Latest fix; (nan, nan) if none yet. t_sec is ignored (real time)."""
@@ -186,6 +205,15 @@ class MavlinkGPS:
 
     def age_sec(self):
         return None if self.fix_time is None else time.time() - self.fix_time
+
+    def status(self):
+        fix = self.fix is not None
+        age = self.age_sec()
+        return {"mode": "mavlink", "fix": fix,
+                "lat": self.fix[0] if fix else None, "lon": self.fix[1] if fix else None,
+                "alt_m": self.alt_m, "sats": None, "hdop": None,
+                "speed_mps": self.speed_mps, "course_deg": self.course_deg,
+                "age_s": None if age is None else round(age, 2)}
 
     def close(self):
         self._stop.set()
