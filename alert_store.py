@@ -52,17 +52,13 @@ class AlertStore:
                             "FROM alerts").fetchone()
         return {"buffered": int(r[0]), "sent": int(r[1])}
 
-    def forward_pending(self, base_url=None, headers=None):
+    def forward_pending(self, base_url, headers=None):
         """POST unsent alerts to <base_url>/alert, most important first; stop at the first failure.
 
         alert_id + wall_time let the ground station drop a resend whose first copy
         arrived but whose reply was lost. A missing snapshot does not block the alert.
         """
         import requests
-        if base_url is None:                       # Task 8 removes this fallback
-            if config.SERVER_URL == "auto":
-                return 0, self.counts()["buffered"]
-            base_url = config.SERVER_URL
         base_url = base_url.rstrip("/")
         if base_url.endswith("/alert"):
             base_url = base_url[:-len("/alert")]

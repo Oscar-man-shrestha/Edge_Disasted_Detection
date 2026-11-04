@@ -24,7 +24,7 @@ def station(tmp_path, monkeypatch):
     st = Station(str(tmp_path / "gs"))
     srv = make_server("127.0.0.1", 0, st.app, threaded=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    monkeypatch.setattr(config, "SERVER_URL", "http://127.0.0.1:%d/alert" % srv.server_port)
+    st.url = "http://127.0.0.1:%d" % srv.server_port
     yield st
     srv.shutdown()
 
@@ -42,10 +42,9 @@ def alerts(gs):
 
 def test_offline_then_online(tmp_config, monkeypatch):
     from alert_store import AlertStore
-    monkeypatch.setattr(config, "SERVER_URL", "http://127.0.0.1:9/alert")   # nothing listens
     st = AlertStore()
     st.maybe_add(det("fire", .8), FRAME, 1.0, 12.97, 77.59)
-    assert st.forward_pending() == (0, 1)
+    assert st.forward_pending("http://127.0.0.1:9", {}) == (0, 1)   # nothing listens
 
 
 def test_cooldown_and_person_threshold(tmp_config):
@@ -65,7 +64,7 @@ def test_send_priority_missing_snapshot_dedupe_and_restart(tmp_config, station):
     st.maybe_add(det("person", .9), FRAME, 3.0, float("nan"), float("nan"))  # no GPS fix
     os.remove(st.db.execute("SELECT snapshot FROM alerts WHERE type='smoke'").fetchone()[0])
 
-    assert st.forward_pending() == (3, 0)
+    assert st.forward_pending(station.url, {}) == (3, 0)
     got = alerts(station)
     assert [a["type"] for a in got] == ["person", "fire", "smoke"]
     person = got[0]
@@ -74,7 +73,7 @@ def test_send_priority_missing_snapshot_dedupe_and_restart(tmp_config, station):
 
     st.db.execute("UPDATE alerts SET sent=0")                 # reply "lost": resend all
     st.db.commit()
-    assert st.forward_pending() == (3, 0)
+    assert st.forward_pending(station.url, {}) == (3, 0)
     assert len(alerts(station)) == 3
 
     restarted = Station(station.data_dir)                     # ground station restart

@@ -27,7 +27,9 @@ class FrameSource:
     CSI camera, or a raw GStreamer pipeline string (anything containing "!").
     """
 
-    def __init__(self, source=config.SOURCE, interval=config.SAMPLE_INTERVAL_SEC):
+    def __init__(self, source=None, interval=None):
+        source = config.SOURCE if source is None else source      # read at call time
+        interval = config.SAMPLE_INTERVAL_SEC if interval is None else interval
         if source == "csi":
             source = csi_pipeline()
         is_gst = isinstance(source, str) and "!" in source

@@ -77,7 +77,6 @@ SERVER_URL = os.environ.get("EDGE_SERVER_URL", "auto")
 ALERT_COOLDOWN_SEC = 10        # same alert type stays quiet this long after firing
 PERSON_ALERT_CONF = 0.5        # people need higher confidence than fire/smoke
 SNAPSHOT_DIR = "data/snapshots"
-FORWARD_INTERVAL_SEC = 5       # (removed in Task 8; replaced by ALERT_FORWARD_INTERVAL_SEC)
 FORWARD_CONNECT_TIMEOUT = 1.0  # short, so a dead link does not stall the link thread
 
 # --- Live link to the ground station (link.py) ---

@@ -1,14 +1,27 @@
+"""Full drone pipeline: camera -> Stage 1 gate -> Stage 2 YOLO -> GPS-tagged alerts.
+
+Alerts, telemetry and camera previews go to the ground station from a background
+thread (link.py). By default the station is found automatically (EDGE_SERVER_URL=auto).
+"""
 import signal
 import time
+
 import config
+from alert_store import AlertStore
 from frame_source import FrameSource
+from gps_source import make_gps
+from link import DroneLink, LinkState, StationFinder
 from stage1_gate import Stage1Gate
 from stage2_detector import Stage2Detector, Stage2Scheduler
-from gps_source import make_gps
-from alert_store import AlertStore
+from system_stats import SystemStats
 
 gate, det, gps, store = Stage1Gate(), Stage2Detector(), make_gps(), AlertStore()
 sched = Stage2Scheduler()
+state = LinkState()
+finder = StationFinder(fixed_url=None if config.SERVER_URL == "auto" else config.SERVER_URL)
+link = DroneLink(state, gps, finder, stats=SystemStats()).start()
+print("[link] station:", config.SERVER_URL if config.SERVER_URL != "auto"
+      else "auto (waiting for the ground station beacon on UDP %d)" % config.DISCOVERY_PORT)
 
 
 def _on_sigterm(signum, frame):
@@ -17,35 +30,24 @@ def _on_sigterm(signum, frame):
 
 signal.signal(signal.SIGTERM, _on_sigterm)
 
-
-def forward(final=False):
-    sent, left = store.forward_pending()
-    if sent or final:
-        print(f"[link] sent {sent}, buffered {left}")
-    return sent, left
-
-
 t0 = None
 total = ran = 0
-last_forward = time.time()
 try:
     for idx, ts, frame in FrameSource().frames():
         t0 = ts if t0 is None else t0
         t = ts - t0
         total += 1
 
-        # Live cameras never "end", so push buffered alerts periodically, not just at exit.
-        if time.time() - last_forward >= config.FORWARD_INTERVAL_SEC:
-            forward()
-            last_forward = time.time()
-
         r = gate.check(frame)
         if not sched.should_run(r["trigger"]):
+            state.frame(frame, r, ran_stage2=False, t=t, skipped=sched.skipped)
             continue
 
         ran += 1
         dets, ms = det.detect(frame)
         sched.update(dets)
+        state.frame(frame, r, ran_stage2=True, stage2_ms=ms, t=t, skipped=sched.skipped)
+        state.detections(dets, time.time())
         lat, lon = gps.position(t)
 
         best = {}                                   # strongest detection per type
@@ -60,10 +62,12 @@ try:
                       f"lat={lat:.6f} lon={lon:.6f}")   # nan = no GPS fix yet
 except KeyboardInterrupt:
     print("\n[stop] stopping, flushing alerts")
+finally:
+    link.stop()
 
-sent, buffered = forward(final=True)
+counts = store.counts()
 print(f"\nframes: {total} | Stage 2 ran on: {ran} | skipped while confirmed: {sched.skipped} "
-      f"| still buffered offline: {buffered}")
+      f"| sent: {counts['sent']} | still buffered offline: {counts['buffered']}")
 
 print("\nid   t(s)  type    conf   lat        lon        sent")
 for row in store.db.execute(

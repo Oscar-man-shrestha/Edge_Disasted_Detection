@@ -166,3 +166,38 @@ def test_preview_size_and_boxes():
     assert r > 150 and g < 120 and b < 120
     plain = cv2.imdecode(np.frombuffer(build_preview(FRAME, [], 480, 60), np.uint8), 1)
     assert abs(int(plain[75, 120][2]) - 90) < 10
+
+
+def test_run_pipeline_end_to_end(tmp_config, fast_link, station, tmp_path, monkeypatch):
+    """Real run_pipeline.py on a synthetic video, stub YOLO, real station over HTTP."""
+    import os
+    import runpy
+    import stage2_detector
+    from alert_store import AlertStore
+
+    vid = str(tmp_path / "synth.mp4")
+    w = cv2.VideoWriter(vid, cv2.VideoWriter_fourcc(*"mp4v"), 25, (640, 360))
+    for i in range(250):                                   # 4 s calm, then an orange blob
+        f = np.zeros((360, 640, 3), np.uint8)
+        if i >= 100:
+            f[100:250, 200:400] = (0, 140, 255)
+        w.write(f)
+    w.release()
+
+    class FakeDetector:
+        def detect(self, frame):
+            time.sleep(0.05)                               # pretend to be YOLO
+            hit = frame[150, 300, 2] > 200
+            return ([{"type": "fire", "conf": 0.7, "box": [200, 100, 400, 250]}] if hit else []), 50.0
+
+    monkeypatch.setattr(stage2_detector, "Stage2Detector", FakeDetector)
+    monkeypatch.setattr(config, "SOURCE", vid)
+    monkeypatch.setattr(config, "SERVER_URL", station.url)
+    monkeypatch.setattr(config, "GPS_MODE", "sim")
+    runpy.run_path(os.path.join(os.path.dirname(os.path.dirname(__file__)), "run_pipeline.py"),
+                   run_name="__main__")
+    alerts = station.config["STORE"].alerts()
+    assert [a["type"] for a in alerts] == ["fire"]
+    assert station.config["LIVE"]["telemetry"] is not None
+    assert station.config["LIVE"]["preview_jpeg"] is not None
+    assert AlertStore().counts()["buffered"] == 0
