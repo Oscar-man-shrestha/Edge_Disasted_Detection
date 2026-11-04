@@ -41,7 +41,15 @@ Then set `SOURCE = "data/mixed_test.mp4"` in `config.py`.
 | `python benchmark.py` | gated vs. heavy-model-on-every-frame benchmark |
 
 Settings live in `config.py`. These can be overridden by environment variables:
-`EDGE_DEVICE`, `EDGE_PERSON_WEIGHTS`, `EDGE_FIRE_WEIGHTS`, `EDGE_SERVER_URL`, `GS_HOST`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EDGE_SOURCE` | `data/mixed_test.mp4` | video path, camera index (`0`), `csi`, or a GStreamer pipeline |
+| `EDGE_DEVICE` | `cpu` | `0` = first CUDA GPU (Jetson) |
+| `EDGE_PERSON_WEIGHTS` | `weights/yolov8n.pt` | person model (`.pt`, `.engine`, `.onnx`) |
+| `EDGE_FIRE_WEIGHTS` | `weights/fire_smoke.pt` | fire/smoke model |
+| `EDGE_SERVER_URL` | `http://localhost:5000/alert` | where the drone posts alerts |
+| `GS_HOST` / `GS_PORT` | `127.0.0.1` / `5000` | ground-station bind address |
 
 ## Benchmark (laptop CPU, one test video: 48 calm + 59 fire frames)
 
@@ -57,9 +65,16 @@ Settings live in `config.py`. These can be overridden by environment variables:
 Caveats: one clip with gentle camera motion; the saving depends on the calm/fire mix;
 person detection is not yet tested on video; laptop numbers only.
 
-## Jetson Nano (JetPack 4.6): UNTESTED until the board arrives
+## Jetson Nano (JetPack 4.6): board arrived, bring-up in progress
+
+Hardware: Jetson Nano Developer Kit B01 (P3450). Power it from a 5V 4A barrel jack with
+the J48 jumper fitted; micro-USB cannot sustain MAXN mode.
 
 Ultralytics supports the original Nano only through Docker on JetPack 4.
+
+**Check first:** `fire_smoke.pt` is a YOLO26n fine-tune. The JetPack 4 container may ship an
+Ultralytics version too old to load YOLO26. If step 5 fails with an unknown-module error,
+use the ONNX fallback in step 9 for the fire model.
 
 1. Max performance: `sudo nvpmodel -m 0 && sudo jetson_clocks`
 2. `sudo docker pull ultralytics/ultralytics:latest-jetson-jetpack4`
@@ -76,6 +91,11 @@ Ultralytics supports the original Nano only through Docker on JetPack 4.
    (look for the input-power field) to compare energy, not just compute time.
 9. If the model will not load on JetPack 4: `YOLO(...).export(format="onnx")` on the laptop
    and test the ONNX file on the board.
+
+CSI camera: `EDGE_SOURCE=csi python run_pipeline.py` (sensor id, capture size and flip are
+`CSI_*` in `config.py`). This needs OpenCV built with GStreamer, which the JetPack system
+OpenCV is; a pip-installed `opencv-python` inside a container is not. Inside Docker, also pass
+`-v /tmp/argus_socket:/tmp/argus_socket` so the container can reach the camera daemon.
 
 To send alerts to a laptop ground station, start it with `GS_HOST=0.0.0.0` and set
 `EDGE_SERVER_URL=http://<laptop-ip>:5000/alert` on the Jetson.

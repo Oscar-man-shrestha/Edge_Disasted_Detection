@@ -105,4 +105,6 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # GS_HOST=0.0.0.0 makes the station reachable from the Jetson over the network.
+    app.run(host=os.environ.get("GS_HOST", "127.0.0.1"),
+            port=int(os.environ.get("GS_PORT", "5000")), debug=False)
