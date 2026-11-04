@@ -7,7 +7,7 @@ from xml.sax.saxutils import escape
 CSV_COLS = ["id", "mission_id", "type", "conf", "status", "lat", "lon",
             "wall_time", "received", "note", "snapshot"]
 TYPES = ("person", "fire", "smoke")
-KML_COLORS = {"person": "ffff9a4d", "fire": "ff3d6bff", "smoke": "ffb0b0b0"}   # aabbggrr
+KML_COLORS = {"person": "ffe58739", "fire": "ff2659d9", "smoke": "ff709e19"}   # aabbggrr
 
 
 def _located(a):

@@ -156,3 +156,17 @@ def test_alerts_json_backcompat(client):
 
 def test_health(client):
     assert client.get("/health").get_json()["ok"] is True
+
+
+def test_dashboard_has_no_external_assets(client):
+    import re
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.data.decode()
+    assert 'id="map"' in html
+    refs = re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', html)
+    assert refs and not [u for u in refs if u.startswith(("http://", "https://", "//"))]
+    lj = client.get("/static/vendor/leaflet/leaflet.js")
+    assert lj.status_code == 200 and b"1.9.4" in lj.data[:400]
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/app.css").status_code == 200

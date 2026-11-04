@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground Station</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Ground Station</div>
+  <div class="pill link-pill never" id="linkPill" role="status" aria-live="polite">
+    <span class="dot" aria-hidden="true"></span><span id="linkText">WAITING FOR DRONE</span>
+  </div>
+  <div class="chip" id="gpsChip" title="GPS status reported by the drone">GPS —</div>
+  <div class="mission">
+    <span class="mission-name" id="missionName">—</span>
+    <span class="mission-timer" id="missionTimer">00:00:00</span>
+  </div>
+  <div class="counters" id="counters" aria-label="Alert counts (new / total)"></div>
+  <div class="spacer"></div>
+  <button class="btn ghost" id="soundBtn" aria-pressed="true" title="Alert sounds">🔔 Sound on</button>
+  <button class="btn" id="newMissionBtn" title="Close this mission and start a new one">New mission</button>
+  <details class="menu" id="exportMenu">
+    <summary class="btn primary">Export ▾</summary>
+    <div class="menu-items">
+      <a id="exCsv" download>CSV (spreadsheet)</a>
+      <a id="exGeo" download>GeoJSON (GIS)</a>
+      <a id="exKml" download>KML (Google Earth)</a>
+      <a id="exReport" target="_blank" rel="noopener">Printable report</a>
+    </div>
+  </details>
+</header>
+
+<main class="grid">
+  <section class="panel live" aria-label="Live drone">
+    <div class="panel-head"><h2>Live camera</h2><span class="muted small" id="previewAge">no image yet</span></div>
+    <div class="preview" id="previewBox">
+      <img id="previewImg" alt="Latest camera preview from the drone">
+      <div class="preview-empty" id="previewEmpty">Waiting for the first camera preview…</div>
+      <span class="badge-yolo" id="yoloBadge" hidden>YOLO ACTIVE</span>
+      <div class="stale" id="staleOverlay" hidden>Preview stale</div>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="sparks">
+      <figure class="spark"><figcaption>Frame rate <b id="fpsNow">—</b></figcaption>
+        <canvas id="sparkFps" height="44"></canvas></figure>
+      <figure class="spark"><figcaption>Board power <b id="powNow">—</b></figcaption>
+        <canvas id="sparkPow" height="44"></canvas></figure>
+      <div class="spark-tip" id="sparkTip" hidden></div>
+    </div>
+  </section>
+
+  <section class="panel mapwrap" aria-label="Map">
+    <div id="map"></div>
+    <div class="map-tools">
+      <button class="btn small" id="followBtn" aria-pressed="true">Follow drone</button>
+      <button class="btn small" id="fitBtn">Fit all</button>
+    </div>
+    <div class="map-legend" aria-label="Map legend">
+      <span><i class="lg person">P</i>person</span><span><i class="lg fire">F</i>fire</span>
+      <span><i class="lg smoke">S</i>smoke</span><span><i class="lg drone"></i>drone</span>
+    </div>
+  </section>
+
+  <section class="panel feed" aria-label="Alerts">
+    <div class="panel-head"><h2>Alerts</h2><span class="muted small" id="feedCount"></span></div>
+    <div class="filters">
+      <div class="seg" id="typeFilter" role="group" aria-label="Filter by type">
+        <button data-type="person" aria-pressed="true">Person</button>
+        <button data-type="fire" aria-pressed="true">Fire</button>
+        <button data-type="smoke" aria-pressed="true">Smoke</button>
+      </div>
+      <select id="statusFilter" aria-label="Filter by status">
+        <option value="open">Open</option>
+        <option value="all">All</option>
+        <option value="new">New</option>
+        <option value="acknowledged">Acknowledged</option>
+        <option value="resolved">Resolved</option>
+      </select>
+    </div>
+    <ol class="alert-list" id="alertList"></ol>
+    <p class="empty" id="feedEmpty">No alerts yet. They appear here the moment the drone detects something.</p>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="assertive"></div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <figure><img id="lightboxImg" alt=""><figcaption id="lightboxCap"></figcaption></figure>
+  <button class="btn" id="lightboxClose">Close</button>
+</div>
+
+<dialog id="noteDialog">
+  <form method="dialog">
+    <h3 id="noteTitle">Note</h3>
+    <textarea id="noteText" rows="4" maxlength="500" placeholder="e.g. Rescue team 2 dispatched"></textarea>
+    <menu><button value="cancel" class="btn ghost">Cancel</button><button value="save" class="btn primary">Save note</button></menu>
+  </form>
+</dialog>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
