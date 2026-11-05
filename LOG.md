@@ -85,6 +85,11 @@ wget -4 -c --tries=20 --read-timeout=20 -O weights/fire_smoke.pt https://hugging
   until docker pull ultralytics/ultralytics:latest-jetson-jetpack4; do sleep 10; done
   ```
   Progress: all layers done except one (~646 MB). When it finishes: `docker build -t edge-drone jetson` (or re-run `jetson/setup_nano.sh`).
+- After a hotspot drop the pull **froze at 0 KB/s** even with internet back (stuck on a dead connection).
+  Fix: kill the pull client and start it again (no sudo needed): it resumed at ~350 KB/s.
+- Made it self-healing: `~/pull-retry.sh` on the Nano (started with `setsid nohup`, survives SSH disconnects)
+  restarts `docker pull` whenever it dies, until the image exists. Logs: `~/pull.log`, `~/pull-retry.log`.
+- A watcher then runs `docker build -t edge-drone jetson` automatically.
 
 ### 8. Remote control from the Mac (so Claude can run Nano commands)
 - Mac SSH key copied to the Nano (`ssh-copy-id`), so `ssh eshaan@192.168.55.1` needs no password.
@@ -98,6 +103,10 @@ wget -4 -c --tries=20 --read-timeout=20 -O weights/fire_smoke.pt https://hugging
   GS_DATA_DIR=ground_station/received/live GS_BEACON_TARGETS=255.255.255.255,10.42.0.255,192.168.55.255 python ground_station/app.py
   ```
   Dashboard: http://localhost:5050 → "Waiting for drone". The Nano can reach it at `http://192.168.55.100:5050` ✅.
+
+### Mistake to undo on the Mac
+- A Nano-only command was run on the Mac with `sudo`, creating `/etc/sudoers.d/edge-docker` **on the Mac**.
+  Harmless (it names a user that doesn't exist on the Mac), but remove it: `sudo rm /etc/sudoers.d/edge-docker`.
 
 ### Security to-do
 - The Nano login password and the lowey Wi-Fi password were shared in chat. Change the Nano password with `passwd` when convenient.
