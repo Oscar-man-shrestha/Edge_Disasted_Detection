@@ -15,3 +15,7 @@ weights/*
 ground_station/received/
 *.db
 *.log
+# UI v3 frontend
+ground_station/web/node_modules/
+ground_station/web/test-results/
+ground_station/web/playwright-report/

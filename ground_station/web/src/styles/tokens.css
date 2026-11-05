@@ -1,0 +1,41 @@
+/* Design tokens. Light is the base; dark applies via [data-theme="dark"] or the OS setting.
+   Alert colours are CVD-validated per theme (dataviz validator, all pairs):
+   dark  #3987e5 / #d95926 / #199e70 on #141821;  light #2a78d6 / #d4561f / #138a5e on #ffffff.
+   Status colours are reserved for state and always ship with a text label. */
+:root {
+  color-scheme: light;
+  --gs-bg: #f6f7f9;
+  --gs-surface: #ffffff;
+  --gs-surface-2: #f0f2f5;
+  --gs-surface-3: #e4e8ee;
+  --gs-line: #d9dee6;
+  --gs-text: #141821;
+  --gs-text-2: #4a5263;
+  --gs-muted: #6b7384;
+  --gs-accent: #2a78d6;
+  --gs-person: #2a78d6;
+  --gs-fire: #d4561f;
+  --gs-smoke: #138a5e;
+  --gs-good: #0ca30c;
+  --gs-warn: #fab219;
+  --gs-serious: #ec835a;
+  --gs-critical: #d03b3b;
+  --gs-map-grid: #e9edf2;
+  --gs-shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px rgb(16 24 40 / 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --gs-bg: #0d1016; --gs-surface: #141821; --gs-surface-2: #1b202b; --gs-surface-3: #232a37;
+    --gs-line: #2a3140; --gs-text: #e8ebf1; --gs-text-2: #a9b0bd; --gs-muted: #7a8293;
+    --gs-accent: #3987e5; --gs-person: #3987e5; --gs-fire: #d95926; --gs-smoke: #199e70;
+    --gs-map-grid: #10141b; --gs-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --gs-bg: #0d1016; --gs-surface: #141821; --gs-surface-2: #1b202b; --gs-surface-3: #232a37;
+  --gs-line: #2a3140; --gs-text: #e8ebf1; --gs-text-2: #a9b0bd; --gs-muted: #7a8293;
+  --gs-accent: #3987e5; --gs-person: #3987e5; --gs-fire: #d95926; --gs-smoke: #199e70;
+  --gs-map-grid: #10141b; --gs-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45);
+}
