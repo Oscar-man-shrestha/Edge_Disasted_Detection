@@ -1,6 +1,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
-import { AttributionControl, LngLatBounds, Map as MLMap, Marker, type GeoJSONSource } from "maplibre-gl";
+import { AttributionControl, LngLatBounds, Map as MLMap, Marker, setWorkerUrl, type GeoJSONSource } from "maplibre-gl";
+// MapLibre 6 runs tile parsing in a module worker: bundle it as our own asset (no CDN, works offline).
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { MapPinOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DronePose } from "../../lib/geo";
@@ -8,7 +10,7 @@ import type { Alert, AlertType } from "../../lib/types";
 import { isDark } from "../../hooks/useTheme";
 import { useMapCommand, usePrefs } from "../../store/ui";
 import { MapControls, type LayerToggles } from "./MapControls";
-import { ATTRIBUTION, buildStyle } from "./mapStyle";
+import { ALERT_SOURCE_LAYER, alertSourceLayer, ATTRIBUTION, buildStyle } from "./mapStyle";
 import { alertElement, clusterElement, droneElement } from "./markers";
 import { useAnimatedDrone } from "./useAnimatedDrone";
 import { hasWebGL } from "./webgl";
@@ -22,6 +24,8 @@ export interface MissionMapProps {
   selectedId?: number | null;
   onSelectAlert(id: number): void;
 }
+
+if (typeof setWorkerUrl === "function") setWorkerUrl(workerUrl);
 
 const CLUSTER_ABOVE = 25;
 const DEFAULT_CENTER: [number, number] = [77.5905, 12.9715];
@@ -173,6 +177,7 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
           smoke: ["+", ["case", ["==", ["get", "type"], "smoke"], 1, 0]],
         },
       });
+      if (!map.getLayer(ALERT_SOURCE_LAYER)) map.addLayer(alertSourceLayer());
       let pending = false;
       const onRender = () => {
         if (pending) return;
@@ -184,6 +189,7 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
       onRender();
       return () => { map.off("moveend", onRender); map.off("sourcedata", onRender); };
     }
+    if (map.getLayer(ALERT_SOURCE_LAYER)) map.removeLayer(ALERT_SOURCE_LAYER);
     if (map.getSource("alerts")) map.removeSource("alerts");
     renderAlerts();
     return undefined;
@@ -238,7 +244,7 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
 
   return (
     <div className="relative h-full w-full" style={{ background: "var(--gs-map-grid)" }}>
-      <div ref={box} className="absolute inset-0" aria-label="Mission map" role="region" />
+      <div ref={box} className="h-full w-full" aria-label="Mission map" role="region" />
       {map && <MapControls map={map} layers={layers} onLayers={setLayers} onFit={fitAll} live={mode === "live"} />}
       {hint && (
         <div role="status" className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-line bg-surface/95 px-3 py-1 text-xs text-text-2 shadow-panel">

@@ -9,6 +9,7 @@ const proxied = ["/api", "/alert", "/snap", "/tiles", "/terrain", "/report", "/h
 export default defineConfig({
   base: "/static/app/",
   plugins: [react(), tailwindcss()],
+  worker: { format: "es" },
   build: {
     outDir: "../static/app",
     emptyOutDir: true,

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const MapCtor = vi.fn();
-vi.mock("maplibre-gl", () => ({ Map: MapCtor, Marker: vi.fn(), AttributionControl: vi.fn(), LngLatBounds: vi.fn() }));
+vi.mock("maplibre-gl", () => ({ Map: MapCtor, Marker: vi.fn(), AttributionControl: vi.fn(), LngLatBounds: vi.fn(), setWorkerUrl: vi.fn() }));
 vi.mock("../../src/features/map/webgl", () => ({ hasWebGL: () => false }));
 
 describe("MissionMap without WebGL", () => {
