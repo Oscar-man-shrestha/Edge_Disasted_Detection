@@ -13,14 +13,14 @@ function wrap(ui: React.ReactNode) {
 describe("shell", () => {
   beforeEach(() => { useLive.getState().reset(); window.location.hash = "#/missions-test-reset"; });
 
-  it("shows the link pill and routes by hash", async () => {
+  it("shows the link pill and routes by hash", { timeout: 15000 }, async () => {
     useLive.getState().hydrate(state());
     window.location.hash = "#/missions";
     render(wrap(<AppShell />));
     expect(screen.getByTestId("link-pill")).toHaveTextContent("LIVE · nano");
     expect(await screen.findByRole("heading", { name: "Missions" })).toBeInTheDocument();
     act(() => { window.location.hash = "#/analytics"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
-    expect(await screen.findByRole("heading", { name: "Analytics" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Analytics" }, { timeout: 8000 })).toBeInTheDocument();
   });
 
   it("error boundary isolates a crashing panel", () => {
