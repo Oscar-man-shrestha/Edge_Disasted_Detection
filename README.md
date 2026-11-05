@@ -41,7 +41,8 @@ Then set `SOURCE = "data/mixed_test.mp4"` in `config.py`.
 | `python check_fire_model.py [video]` | sanity-check the fire model on a few frames |
 | `python ground_station\app.py` | ground station dashboard at http://localhost:5000 (the drone finds it automatically) |
 | `python ground_station\demo_drone.py` | simulated drone, to demo the dashboard without the Jetson |
-| `python ground_station\tiles.py prefetch --bbox ... --zoom 14-18` | download map tiles for offline use |
+| `python ground_station\tiles.py prefetch --bbox ... --zoom 14-18 [--terrain]` | download map (and 3D terrain) tiles for offline use |
+| `cd ground_station\web && npm ci && npm run dev` | work on the dashboard UI (React + TypeScript, see GUIDE.md §13.5) |
 | `python run_pipeline.py` | full pipeline, writes alerts to `data/alerts.db` and sends them |
 | `python forward_now.py` | push buffered alerts to the ground station |
 | `python benchmark.py [--source v.mp4] [--tag name]` | gated vs. heavy model on every frame (+ energy on Jetson) |

@@ -14,7 +14,7 @@ export function PersonBanner() {
   const a = open[0];
   return (
     <div role="alert" aria-label={`Person detected — ${open.length} unacknowledged`}
-      className="pointer-events-auto fixed left-1/2 top-16 z-[2000] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-critical bg-critical px-4 py-2 text-sm font-semibold text-white shadow-panel">
+      className="pointer-events-auto fixed bottom-[164px] left-1/2 z-[2000] flex w-max max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-3 rounded-xl border border-critical bg-critical px-4 py-2 text-sm font-semibold text-white shadow-panel md:bottom-auto md:top-16">
       <TriangleAlert size={18} aria-hidden />
       <span>Person detected{open.length > 1 ? ` (${open.length})` : ""} — acknowledge to clear</span>
       <button type="button" className="rounded-md bg-white/20 px-2 py-0.5 text-xs hover:bg-white/30"

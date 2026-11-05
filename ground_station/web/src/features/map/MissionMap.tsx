@@ -120,7 +120,8 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
     }
     droneMarker.current.setLngLat([pose.lon, pose.lat]).setRotation(pose.course ?? 0);
     droneMarker.current.getElement().classList.toggle("gs-stale", !!droneStale);
-    if (mode === "live" && prefs.follow && !droneStale) {
+    // follow: re-centre each frame, but never cancel a running camera animation (3D tilt, fit, fly)
+    if (mode === "live" && prefs.follow && !droneStale && !map.isMoving()) {
       map.setCenter([pose.lon, pose.lat]);
       if (prefs.headingUp && pose.course != null) map.setBearing(pose.course);
     }
@@ -219,14 +220,15 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
     trail.forEach((c) => b.extend(c));
     alerts.filter(located).forEach((a) => b.extend([a.lon!, a.lat!]));
     if (pose) b.extend([pose.lon, pose.lat]);
-    if (!b.isEmpty()) map.fitBounds(b, { padding: 60, maxZoom: 18, duration: 600 });
-  }, [map, trail, alerts, pose]);
+    // keep the 3D tilt: camera moves must never silently flatten the map
+    if (!b.isEmpty()) map.fitBounds(b, { padding: 60, maxZoom: 18, duration: 600, pitch: prefs.map3d ? 60 : 0 });
+  }, [map, trail, alerts, pose, prefs.map3d]);
 
   useEffect(() => {
     if (!map || fitted.current) return;
     if (trail.length || alerts.some(located) || pose) {
       fitted.current = true;
-      if (mode === "live" && pose && prefs.follow) map.jumpTo({ center: [pose.lon, pose.lat], zoom: 17 });
+      if (mode === "live" && pose && prefs.follow) map.jumpTo({ center: [pose.lon, pose.lat], zoom: 17, pitch: prefs.map3d ? 60 : 0 });
       else fitAll();
     }
   }, [map, trail.length, alerts, pose, mode, prefs.follow, fitAll]);
@@ -238,7 +240,7 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
     else if (cmd.type === "north") map.easeTo({ bearing: 0, duration: 500 });
     else if (cmd.type === "flyTo") {
       if (mode === "live") setPrefs({ follow: false });
-      map.flyTo({ center: [cmd.lon, cmd.lat], zoom: Math.max(map.getZoom(), 17), duration: 900 });
+      map.flyTo({ center: [cmd.lon, cmd.lat], zoom: Math.max(map.getZoom(), 17), duration: 900, pitch: map.getPitch() });
     }
   }, [cmd]); // eslint-disable-line react-hooks/exhaustive-deps
 

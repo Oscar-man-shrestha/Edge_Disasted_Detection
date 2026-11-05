@@ -54,7 +54,7 @@ export default function LiveView() {
       </Panel>
 
       {/* phone and narrow tablet: sheets */}
-      <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2 lg:hidden">
+      <div className="absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 gap-2 whitespace-nowrap md:bottom-3 lg:hidden">
         <Button className="bg-surface/95 shadow-panel md:hidden" onClick={() => setSheet("camera")}><Camera size={14} /> Camera</Button>
         <Button className="bg-surface/95 shadow-panel md:hidden" onClick={() => setSheet("flight")}><GaugeIcon size={14} /> Flight</Button>
         <Button variant="primary" className="shadow-panel" onClick={() => setSheet("alerts")}>

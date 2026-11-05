@@ -107,6 +107,20 @@ Design: [spec](docs/superpowers/specs/2026-11-05-ground-station-design.md) · [i
 | 27 | **Simulated demo drone**, to show the whole system without the Jetson | `ground_station/demo_drone.py` |
 | 28 | Optional shared key (`GS_LINK_KEY` / `EDGE_LINK_KEY`) | |
 
+### Round 5: professional dashboard (UI v3)
+
+Design: [spec](docs/superpowers/specs/2026-11-05-ground-station-ui-v3-design.md) · [plan](docs/superpowers/plans/2026-11-05-ground-station-ui-v3.md)
+
+| # | What | Where |
+|---|---|---|
+| 29 | **New frontend stack:** React 19 + TypeScript + Vite, Tailwind + Radix UI, pinned dependency versions. The built UI is committed, so the field laptop still needs only Python. | `ground_station/web/` → `ground_station/static/app/` |
+| 30 | **MapLibre GL map:** GPU rendering, **2D/3D with cached terrain**, smoothly animated drone, gradient trail, alert clustering with per-type counts, north-up / heading-up / follow / fit | `web/src/features/map/` |
+| 31 | **Live view:** camera card (full screen, YOLO ACTIVE, STALE), flight readout (compass, power gauge, WARM/HOT labels, sparklines), alert drawer with detail, notes, Acknowledge / Resolve / Reopen | `web/src/features/live/`, `alerts/` |
+| 32 | **Replay view:** timeline with play at 1× / 4× / 16×, alert ticks you can click, a pipeline-state band, and the drone and alerts as they were at that moment | `web/src/features/replay/` |
+| 33 | **Analytics view:** headline numbers (including **compute saved by gating**), detections per minute, power, temperatures, frame rate, pipeline state, plus a data table | `web/src/features/analytics/` |
+| 34 | **Missions view**, a ⌘K command palette, keyboard shortcuts, a person-alert banner, dark and light themes, phone layout | `web/src/features/shell/`, `missions/` |
+| 35 | **Station additions:** telemetry history (every 5 s), mission timeline API, mission list with counts and distance, cached 3D terrain proxy and prefetch, Reopen clears the resolved time, wrong-shaped JSON → 400 | `ground_station/store.py`, `app.py`, `tiles.py` |
+
 ### All settings (environment variables)
 
 | Variable | Default | Meaning |
@@ -127,7 +141,10 @@ Design: [spec](docs/superpowers/specs/2026-11-05-ground-station-design.md) · [i
 
 ## 4. How it was tested
 
-**Automated: `python -m pytest`, 80 of 80 pass** (laptop, no models needed)
+**Automated, all on the laptop with no models needed:**
+- `python -m pytest`: **110 of 110 pass** (backend)
+- `npm test`: **63 of 63 pass** (dashboard units)
+- `npm run test:e2e`: **8 of 8 pass** (Playwright against the real station and demo drone, including a run with every non-station request blocked, and a phone-width run)
 
 | Area | What the tests check |
 |---|---|

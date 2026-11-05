@@ -91,13 +91,15 @@ export function CommandBar() {
           <ThemeIcon size={16} />
         </Button>
       </Tip>
-      <Button variant="ghost" className="hidden sm:inline-flex" aria-label="Command palette"
-        onClick={() => overlays.set({ palette: true })}>
-        <Command size={14} /><span className="text-xs text-muted">K</span>
-      </Button>
-      <Button className="hidden sm:inline-flex" onClick={() => overlays.set({ newMission: true })}>
-        <Plus size={14} /> New mission
-      </Button>
+      {/* desktop-only: a wrapper hides them (Button's own inline-flex would beat a "hidden" class) */}
+      <span className="hidden items-center gap-2 sm:inline-flex">
+        <Button variant="ghost" aria-label="Command palette" onClick={() => overlays.set({ palette: true })}>
+          <Command size={14} /><span className="text-xs text-muted">K</span>
+        </Button>
+        <Button onClick={() => overlays.set({ newMission: true })}>
+          <Plus size={14} /> New mission
+        </Button>
+      </span>
       <MenuRoot>
         <MenuTrigger asChild>
           <Button variant="primary"><Download size={14} /> Export</Button>

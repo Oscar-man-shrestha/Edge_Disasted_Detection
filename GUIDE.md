@@ -152,10 +152,18 @@ This uses the **simulated drone**. It runs the real drone code; only the camera,
 
 **You should see, within a few seconds:**
 - **LIVE · demo-drone** (green) in the top bar, plus `SIM GPS`
-- the drone arrow moving on the map, with a dashed trail behind it
-- the camera preview updating; after about 30 s a fire appears, the **YOLO ACTIVE** badge lights up, and alerts pop up with a sound
-- alert cards on the right with **Acknowledge / Resolve / Note** buttons
+- the drone arrow gliding over the map, with a gradient trail behind it
+- the camera card and flight readout on the left: compass, power gauge, temperatures, 60 s sparklines
+- after about 30 s a fire appears: the **YOLO ACTIVE** badge lights up, and alerts pop up with a sound (a red banner for people)
+- the alert drawer on the right: open an alert for its snapshot, then **Acknowledge / Resolve / Reopen** and add a note
 
+Then try the rest of the dashboard:
+- [ ] Press **3** (or the 2D/3D button) to tilt the map. With terrain tiles cached, you get real 3D relief.
+- [ ] Press **⌘K / Ctrl+K** for the command palette, and **?** for all keyboard shortcuts.
+- [ ] Open **Replay** (left rail): scrub the timeline, or play it at 1× / 4× / 16×. Alerts appear when they happened.
+- [ ] Open **Analytics**: headline numbers (including **compute saved by gating**), detections per minute, power, temperatures, frame rate, pipeline state.
+- [ ] Open **Missions**: every mission, with Replay, Analytics, Report and CSV/GeoJSON/KML.
+- [ ] Use the sun/moon button for the light/dark theme. The layout also works on a phone (bottom tabs).
 - [ ] Click the 🔔 button once (browsers need one click before they allow sound).
 - [ ] Stop the demo drone (Ctrl+C). Within 3–4 s the top bar turns red: **LINK LOST**.
 
@@ -600,7 +608,7 @@ The station keeps everything in `ground_station/received/` (database, snapshots 
 | What the drone sends to the station, and how often | `link.py`, `system_stats.py` |
 | The main loop | `run_pipeline.py` |
 | Station API and storage | `ground_station/app.py`, `ground_station/store.py` |
-| Dashboard look and behaviour | `ground_station/templates/index.html`, `static/app.css`, `static/app.js` |
+| Dashboard UI (React + TypeScript) | `ground_station/web/src/`. Build output in `ground_station/static/app/` (see §13.5) |
 | Exports and report | `ground_station/exports.py`, `templates/report.html` |
 | Jetson scripts (Docker, setup, hotspot, autostart) | `jetson/` |
 
@@ -612,8 +620,8 @@ The station keeps everything in `ground_station/received/` (database, snapshots 
 - **Add a new detection type** (e.g. "flood"):
   1. Train or obtain a YOLO model and load it in `Stage2Detector`.
   2. Add it to `PRIORITY` in `alert_store.py` **and** `ground_station/app.py`.
-  3. Add it to `TYPES` in `ground_station/exports.py` and `static/app.js` (`PRIORITY`, `TYPES`, `LETTER`).
-  4. Add a colour in `static/app.css`. Pick one that stays distinguishable from blue, orange and aqua.
+  3. Add it to `TYPES` in `ground_station/exports.py`, and in the UI to `ALERT_TYPES`/`PRIORITY` in `web/src/lib/types.ts` and `LETTER` in `web/src/ui/Badge.tsx` and `web/src/features/map/markers.ts`.
+  4. Add a colour token in `web/src/styles/tokens.css` (dark and light). Check it stays distinguishable from blue, orange and aqua for colour-blind users (for example with a colour-blindness simulator), then rebuild the UI (§13.5).
   5. Add tests.
 - **Change how often the drone reports:** `TELEMETRY_INTERVAL_SEC`, `PREVIEW_INTERVAL_SEC` and `ALERT_FORWARD_INTERVAL_SEC` in `config.py`.
 
@@ -639,6 +647,46 @@ The station keeps everything in `ground_station/received/` (database, snapshots 
 
 ---
 
+### 13.5 Working on the dashboard UI
+
+The dashboard is a React + TypeScript app in `ground_station/web/`. Its **built** files are committed in `ground_station/static/app/`, so the field laptop only needs Python. You need Node only to change the UI.
+
+- [ ] Install **Node 22** (22.12 or newer) from nodejs.org.
+- [ ] Install the exact pinned packages:
+  ```bash
+  cd ground_station/web && npm ci
+  ```
+- [ ] Start the station in one terminal (`python ground_station/app.py`), then run the dev server in another:
+  ```bash
+  npm run dev
+  ```
+  Open http://localhost:5173/static/app/. Changes reload instantly, and `/api`, `/tiles` and the rest are passed through to the station on :5000.
+- [ ] Run the unit tests (Vitest) and the type check:
+  ```bash
+  npm test && npm run typecheck
+  ```
+- [ ] Run the end-to-end tests. Playwright starts its own station on port 5077 and the demo drone. The first time, install its browser with `npx playwright install chromium`.
+  ```bash
+  GS_PYTHON=../../venv/bin/python npm run test:e2e
+  ```
+  On Windows, set `GS_PYTHON` to `..\..\venv\Scripts\python.exe`.
+- [ ] Build, then **commit the build output** together with your source changes:
+  ```bash
+  npm run build && npm run check:build
+  ```
+  ```bash
+  git add ground_station/web ground_station/static/app
+  ```
+
+| Folder | What's in it |
+|---|---|
+| `src/lib/` | API client, types, server clock, formatting, geometry, saved preferences |
+| `src/store/` | live state (Zustand), selection, map commands, overlays |
+| `src/features/shell/` | command bar, navigation, ⌘K palette, notifications, person banner |
+| `src/features/map/` | MapLibre map: offline style, 3D terrain, drone animation, alert clusters |
+| `src/features/live/`, `alerts/`, `replay/`, `analytics/`, `missions/` | the four views |
+| `tests/unit/`, `tests/e2e/` | Vitest and Playwright tests |
+
 ## 14. Reference
 
 ### Commands cheat sheet
@@ -648,7 +696,10 @@ The station keeps everything in `ground_station/received/` (database, snapshots 
 | laptop | `python ground_station/app.py` | ground station + dashboard (http://localhost:5000) |
 | laptop | `python ground_station/demo_drone.py --station http://localhost:5000` | simulated drone |
 | laptop | `python ground_station/tiles.py prefetch --bbox lat1,lon1,lat2,lon2 --zoom 14-18` | cache map tiles |
-| laptop | `python -m pytest` | all tests |
+| laptop | `python -m pytest` | backend tests |
+| laptop | `cd ground_station/web && npm test` | dashboard unit tests (Vitest) |
+| laptop | `cd ground_station/web && GS_PYTHON=../../venv/bin/python npm run test:e2e` | dashboard end-to-end tests (Playwright) |
+| laptop | `cd ground_station/web && npm run build` | rebuild the dashboard (commit `ground_station/static/app/`) |
 | laptop | `python export_onnx.py` | ONNX fallback models |
 | Nano | `jetson/setup_nano.sh` | one-time setup |
 | Nano | `jetson/run_docker.sh python3 run_pipeline.py` | the drone pipeline |
@@ -699,3 +750,4 @@ The station keeps everything in `ground_station/received/` (database, snapshots 
 | Laptop `ground_station/received/station.db` | all missions, alerts, notes and the flight track |
 | Laptop `ground_station/received/snaps/` | snapshots received from the drone |
 | Laptop `ground_station/received/tiles/` | cached map tiles |
+| Laptop `ground_station/received/terrain/` | cached 3D terrain tiles |
