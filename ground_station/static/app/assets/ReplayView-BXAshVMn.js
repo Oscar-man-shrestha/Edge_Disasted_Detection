@@ -1,1 +1,0 @@
-import{t as e}from"./index-LEVDJlax.js";var t=e();function n(e){return(0,t.jsx)(`section`,{className:`p-6`,children:(0,t.jsx)(`h1`,{className:`text-lg font-semibold`,children:`Replay`})})}export{n as default};
