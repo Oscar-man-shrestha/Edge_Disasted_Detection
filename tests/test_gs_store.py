@@ -83,3 +83,70 @@ def test_track_ignores_non_finite(st):
     assert st.add_track_point("nano", 1.0, float("nan"), 77.59, None) is False
     assert st.add_track_point("nano", 1.0, 12.97, float("inf"), None) is False
     assert st.track(st.current_mission()["id"]) == []
+
+
+# ---------------------------------------------------------------- UI v3: telemetry log, epochs
+import math  # noqa: E402
+import time  # noqa: E402
+
+V2_TELEMETRY = {"drone_id": "nano", "gps": {"fix": True, "lat": 12.97, "lon": 77.59, "alt_m": 900.0,
+                                            "speed_mps": 4.5, "course_deg": 90.0, "sats": 9},
+                "pipeline": {"state": "active", "fps": 2.0, "stage2_runs": 5, "stage2_skipped": 3},
+                "system": {"power_mw": 6100, "cpu_temp_c": 51.0, "gpu_temp_c": 49.5,
+                           "cpu_load_pct": 60, "gpu_load_pct": 70}}
+
+
+def test_mission_has_epoch_times(st):
+    m = st.current_mission()
+    assert abs(m["started_ts"] - time.time()) < 2 and m["ended_ts"] is None
+    st.new_mission()
+    old = [x for x in st.missions() if x["id"] == m["id"]][0]
+    assert old["ended_ts"] >= old["started_ts"]
+
+
+def test_alert_received_at_set(st):
+    a, _ = st.add_alert(alert_fields())
+    assert isinstance(a["received_at"], float) and abs(a["received_at"] - time.time()) < 2
+
+
+def test_reopen_clears_resolved_at(st):
+    a, _ = st.add_alert(alert_fields())
+    st.update_alert(a["id"], status="resolved")
+    r = st.update_alert(a["id"], status="acknowledged")
+    assert r["resolved_at"] is None and r["acked_at"] is not None
+
+
+def test_telemetry_sample_throttle(st):
+    for t in (100.0, 102.0, 105.5, 106.0):
+        st.add_telemetry_sample("nano", t, V2_TELEMETRY)
+    rows = st.telemetry_log(st.current_mission()["id"])
+    assert [r["t"] for r in rows] == [100.0, 105.5]
+    r = rows[0]
+    assert (r["lat"], r["fps"], r["power_mw"], r["fix"], r["state"]) == (12.97, 2.0, 6100, 1, "active")
+    assert r["stage2_runs"] == 5 and r["course_deg"] == 90.0
+
+
+def test_telemetry_sample_nonfinite_to_null(st):
+    bad = {"gps": {"fix": True, "lat": float("nan"), "lon": 77.59}, "system": {"power_mw": "x"}}
+    assert st.add_telemetry_sample("nano", 1.0, bad) is True
+    r = st.telemetry_log(st.current_mission()["id"])[0]
+    assert r["lat"] is None and r["power_mw"] is None and r["lon"] == 77.59
+
+
+def test_migrates_v2_station_db(tmp_path):
+    path = str(tmp_path / "station.db")
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE missions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, started_at TEXT, ended_at TEXT)")
+    con.execute("""CREATE TABLE alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, drone_alert_id TEXT, type TEXT,
+        conf REAL, lat REAL, lon REAL, video_time REAL, wall_time TEXT, received TEXT, snapshot TEXT,
+        mission_id INTEGER, drone_id TEXT, status TEXT DEFAULT 'new', note TEXT, acked_at TEXT, resolved_at TEXT)""")
+    con.execute("CREATE UNIQUE INDEX dedupe ON alerts(drone_alert_id, wall_time)")
+    con.execute("CREATE TABLE track (id INTEGER PRIMARY KEY AUTOINCREMENT, mission_id INTEGER, drone_id TEXT, t REAL, lat REAL, lon REAL, alt_m REAL)")
+    con.execute("INSERT INTO missions (name, started_at) VALUES ('Mission 1', '2026-11-05 10:00:00')")
+    con.execute("INSERT INTO alerts (drone_alert_id,type,conf,wall_time,mission_id,status) VALUES ('1','fire',0.8,'w1',1,'new')")
+    con.commit()
+    con.close()
+    st = Store(path)
+    assert st.alerts(1)[0]["received_at"] is None
+    assert st.current_mission()["started_ts"] == time.mktime(time.strptime("2026-11-05 10:00:00", "%Y-%m-%d %H:%M:%S"))
+    assert st.telemetry_log(1) == []
