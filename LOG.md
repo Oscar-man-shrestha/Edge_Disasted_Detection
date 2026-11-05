@@ -15,8 +15,10 @@ Lenovo FHD USB webcam · u-blox NEO-M8N GPS + compass · 5 V barrel power · Mac
 | Project code on the Nano (`~/Edge_Disasted_Detection_Project`, branch `temp-jetson-fixes`) | ✅ |
 | Models: `weights/yolov8n.pt` (6.3 MB), `weights/fire_smoke.pt` (5.2 MB) | ✅ |
 | Webcam detected (`/dev/video0`, USB ID `17ef:4831 Lenovo`) | ✅ |
-| Docker base image `ultralytics/ultralytics:latest-jetson-jetpack4` | ⏳ ~30 of 31 layers downloaded |
-| Our image `edge-drone` | ⏳ builds automatically after the download |
+| Docker base image `ultralytics/ultralytics:latest-jetson-jetpack4` | ✅ 5.6 GB, finished 16:31 (Nano clock) |
+| Our image `edge-drone` | ✅ built |
+| AI check on the GPU (both models, real webcam frame) | ✅ |
+| TensorRT FP16 engines | ⏳ building overnight |
 | Ground station on the Mac (port 5050) | ✅ running, "Waiting for drone" |
 | Nano → Mac station link over USB (`192.168.55.100:5050`) | ✅ tested |
 | Camera snapshot / AI check / first live run | ⏳ next |
@@ -109,6 +111,36 @@ wget -4 -c --tries=20 --read-timeout=20 -O weights/fire_smoke.pt https://hugging
   GS_DATA_DIR=ground_station/received/live GS_BEACON_TARGETS=255.255.255.255,10.42.0.255,192.168.55.255 python ground_station/app.py
   ```
   Dashboard: http://localhost:5050 → "Waiting for drone". The Nano can reach it at `http://192.168.55.100:5050` ✅.
+
+### 10. Docker image built
+- Base image download finished (`PULL-FINISHED 16:31:39`), then `docker build -t edge-drone jetson` ✅ (5.62 GB).
+- `pymavlink` failed to install inside the image. Fine: only needed for `EDGE_GPS=mavlink` (flight controller); our GPS is NMEA.
+- Run things without sudo: `DOCKER=docker jetson/run_docker.sh python3 <script>.py` (eshaan is in the docker group).
+
+Inside the container:
+
+| | |
+|---|---|
+| Python | 3.8.0 |
+| PyTorch | 1.11.0a0, **CUDA True**, GPU `NVIDIA Tegra X1` |
+| Ultralytics | 8.4.203 (loads the YOLO26 fire model without upgrading) |
+| OpenCV | 5.0.0, GStreamer **NO** (fine for the USB webcam via V4L2; a CSI camera would need `jetson/camera_bridge.py`) |
+
+### 11. AI check (PyTorch, GPU, FP32, 640 px, on the 1280x720 webcam photo)
+
+| Model | Classes | Time / frame | Result |
+|---|---|---|---|
+| `yolov8n.pt` (person) | 80 COCO | **365 ms** | bed 0.87, table 0.44, cup 0.44, chairs, **person 0.29** (seen from behind) |
+| `fire_smoke.pt` (YOLO26) | fire, smoke | **269 ms** | nothing, correct (no fire in the room) |
+
+Pictures with boxes saved on the Nano: `data/ai_check_person.jpg`, `data/ai_check_fire.jpg`.
+`benchmark.py` needs `data/mixed_test.mp4` + labels, which aren't on the Nano yet, so timing is measured on the webcam frame instead.
+
+### 12. TensorRT export (started 21:35 Nano clock)
+```bash
+DOCKER=docker setsid nohup jetson/run_docker.sh python3 export_trt.py > ~/trt_export.log 2>&1 &
+```
+Builds FP16 engines `weights/yolov8n.engine` and `weights/fire_smoke.engine` (device-specific, never commit them).
 
 ### Mistake to undo on the Mac
 - A Nano-only command was run on the Mac with `sudo`, creating `/etc/sudoers.d/edge-docker` **on the Mac**.
