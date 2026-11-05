@@ -188,7 +188,7 @@ python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 ```
 Then move the downloaded `yolov8n.pt` into `weights/` (Mac/Linux: `mv yolov8n.pt weights/`).
 
-**Do 2: the fire/smoke model.** On Hugging Face, open the model page **`seawsurf/fire_yolo`**, go to *Files*, download **`best.pt`**, and save it as **`weights/fire_smoke.pt`**.
+**Do 2: the fire/smoke model.** On Hugging Face, open the model page **`seawsurf/fire_yolo`**, go to *Files*, open the **`weights/`** folder, download **`best.pt`** (5.4 MB), and save it as **`weights/fire_smoke.pt`**. Direct link: `https://huggingface.co/seawsurf/fire_yolo/resolve/main/weights/best.pt`.
 
 **Do 3: the test video.** Save any calm aerial clip as `data/calm.mp4` and any aerial fire clip as `data/test_video.mp4`. Then:
 ```bash
