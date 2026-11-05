@@ -24,7 +24,13 @@ export const test = base.extend<Fixtures>({
   },
   consoleGuard: [async ({ page }, use) => {
     const errors: string[] = [];
-    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    page.on("console", (m) => {
+      if (m.type() !== "error") return;
+      // An uncached map/terrain tile 404s offline by design; the browser logs that itself.
+      const where = m.location()?.url ?? "";
+      if (/Failed to load resource/.test(m.text()) && /\/(tiles|terrain)\//.test(where)) return;
+      errors.push(m.text());
+    });
     page.on("pageerror", (e) => errors.push(e.message));
     await use();
     expect(errors, "console errors").toEqual([]);
@@ -42,4 +48,16 @@ export async function mapState(page: Page) {
     const m = (window as any).__gsMap;
     return m ? { lat: m.getCenter().lat, lng: m.getCenter().lng, pitch: m.getPitch() } : null;
   });
+}
+
+let alertSeq = 0;
+/** Post an alert straight to the test station (as the drone would). Returns its station id. */
+export async function postAlert(request: import("@playwright/test").APIRequestContext,
+                                lat: number, lon: number, type = "fire"): Promise<number> {
+  alertSeq += 1;
+  const key = `e2e-${process.pid}-${Date.now()}-${alertSeq}`;
+  await request.post(`${STATION}/alert`, { multipart: {
+    alert_id: key, drone_id: "e2e", type, conf: "0.9", lat: String(lat), lon: String(lon), wall_time: key } });
+  const st = await (await request.get(`${STATION}/api/state`)).json();
+  return Math.max(...st.alerts.map((a: { id: number }) => a.id));
 }

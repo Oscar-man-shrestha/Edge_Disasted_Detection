@@ -11,7 +11,7 @@ import { isDark } from "../../hooks/useTheme";
 import { useMapCommand, usePrefs } from "../../store/ui";
 import { MapControls, type LayerToggles } from "./MapControls";
 import { ALERT_SOURCE_LAYER, alertSourceLayer, ATTRIBUTION, buildStyle } from "./mapStyle";
-import { alertElement, clusterElement, droneElement } from "./markers";
+import { alertElement, clusterElement, droneElement, updateAlertElement, updateClusterElement } from "./markers";
 import { useAnimatedDrone } from "./useAnimatedDrone";
 import { hasWebGL } from "./webgl";
 
@@ -68,7 +68,12 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
       attributionControl: false, maxPitch: 70, fadeDuration: 150,
     });
     m.addControl(new AttributionControl({ customAttribution: ATTRIBUTION, compact: true }), "bottom-right");
-    m.on("load", () => {
+    // Initialise on "style.load", not "load": "load" waits for the first tiles, and offline over an
+    // uncached area every tile 404s, so "load" never fires and the map would get no drone/markers/controls.
+    let ready = false;
+    const init = () => {
+      if (ready) return;
+      ready = true;
       m.addSource("trail", { type: "geojson", lineMetrics: true, data: { type: "FeatureCollection", features: [] } });
       m.addLayer({
         id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
@@ -78,7 +83,9 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
         },
       });
       setMap(m);
-    });
+    };
+    m.on("style.load", init);
+    if (m.isStyleLoaded()) init();
     m.on("dragstart", (e: any) => { if (e.originalEvent) usePrefs.getState().set({ follow: false }); });
     if (window.location.search.includes("debug=1")) (window as any).__gsMap = m;
     return () => { m.remove(); setMap(null); };
@@ -128,38 +135,50 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
   }, [map, pose, droneStale, mode, prefs.follow, prefs.headingUp]);
   useEffect(() => () => { droneMarker.current?.remove(); droneMarker.current = null; }, [map]);
 
-  // ---- alert markers (HTML), clustered above CLUSTER_ABOVE
+  // ---- alert markers (HTML), clustered above CLUSTER_ABOVE.
+  // Markers are reconciled by key and REUSED (only position/class/text change), so a click
+  // or keyboard focus on a marker survives re-renders while the map follows the drone.
   const alertMarkers = useRef(new Map<string, Marker>());
   const shown = useMemo(() => (layers.alerts ? alerts.filter(located) : []), [alerts, layers.alerts]);
+  const select = useCallback((id: number) => onSelect.current(id), []);
   const renderAlerts = useCallback(() => {
     if (!map) return;
     const keep = new Set<string>();
-    const put = (key: string, lngLat: [number, number], make: () => HTMLElement) => {
+    const put = (key: string, lngLat: [number, number], make: () => HTMLElement, update: (el: HTMLElement) => void) => {
       keep.add(key);
       const old = alertMarkers.current.get(key);
-      if (old) { old.remove(); }
+      if (old) { old.setLngLat(lngLat); update(old.getElement()); return; }
       alertMarkers.current.set(key, new Marker({ element: make() }).setLngLat(lngLat).addTo(map));
     };
     if (shown.length <= CLUSTER_ABOVE) {
-      for (const a of shown) put(`a${a.id}`, [a.lon!, a.lat!], () => alertElement(a, a.id === selectedId, onSelect.current));
+      for (const a of shown) {
+        put(`a${a.id}`, [a.lon!, a.lat!], () => alertElement(a, a.id === selectedId, select),
+          (el) => updateAlertElement(el, a, a.id === selectedId, select));
+      }
     } else {
       const byId = new Map(shown.map((a) => [a.id, a]));
       for (const f of map.querySourceFeatures("alerts")) {
         const p = f.properties as any;
         const [lon, lat] = (f.geometry as any).coordinates as [number, number];
         if (p.cluster) {
-          const key = `c${p.cluster_id}`;
+          // keyed by position: cluster_id renumbers whenever any alert is added
+          const key = `c${lon.toFixed(5)},${lat.toFixed(5)}`;
           if (keep.has(key)) continue;
           const counts = { person: p.person ?? 0, fire: p.fire ?? 0, smoke: p.smoke ?? 0 } as Record<AlertType, number>;
-          put(key, [lon, lat], () => clusterElement(counts, p.point_count, () => map.easeTo({ center: [lon, lat], zoom: map.getZoom() + 2 })));
+          const zoomIn = () => map.easeTo({ center: [lon, lat], zoom: map.getZoom() + 2 });
+          put(key, [lon, lat], () => clusterElement(counts, p.point_count, zoomIn),
+            (el) => updateClusterElement(el, counts, p.point_count, zoomIn));
         } else {
           const a = byId.get(p.id);
-          if (a && !keep.has(`a${a.id}`)) put(`a${a.id}`, [lon, lat], () => alertElement(a, a.id === selectedId, onSelect.current));
+          if (a && !keep.has(`a${a.id}`)) {
+            put(`a${a.id}`, [lon, lat], () => alertElement(a, a.id === selectedId, select),
+              (el) => updateAlertElement(el, a, a.id === selectedId, select));
+          }
         }
       }
     }
     for (const [k, mk] of alertMarkers.current) if (!keep.has(k)) { mk.remove(); alertMarkers.current.delete(k); }
-  }, [map, shown, selectedId]);
+  }, [map, shown, selectedId, select]);
 
   useEffect(() => {
     if (!map) return;
@@ -179,16 +198,18 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
         },
       });
       if (!map.getLayer(ALERT_SOURCE_LAYER)) map.addLayer(alertSourceLayer());
-      let pending = false;
-      const onRender = () => {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(() => { pending = false; renderAlerts(); });
+      let raf = 0;
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; renderAlerts(); }); };
+      // clusters change with the data and the zoom, not with every follow re-centre
+      const onData = (e: any) => { if (e.sourceId === "alerts" && e.isSourceLoaded) schedule(); };
+      map.on("sourcedata", onData);
+      map.on("zoomend", schedule);
+      map.on("moveend", schedule);          // cheap now: markers are reused, never rebuilt
+      schedule();
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+        map.off("sourcedata", onData); map.off("zoomend", schedule); map.off("moveend", schedule);
       };
-      map.on("moveend", onRender);
-      map.on("sourcedata", onRender);
-      onRender();
-      return () => { map.off("moveend", onRender); map.off("sourcedata", onRender); };
     }
     if (map.getLayer(ALERT_SOURCE_LAYER)) map.removeLayer(ALERT_SOURCE_LAYER);
     if (map.getSource("alerts")) map.removeSource("alerts");
@@ -233,16 +254,22 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
     }
   }, [map, trail.length, alerts, pose, mode, prefs.follow, fitAll]);
 
+  // Commands sent before this map existed (palette / banner / toast navigate here and fly)
+  // run once the map is ready; each command runs once; stale ones (>10 s) are dropped.
   const cmd = useMapCommand((s) => s.cmd);
+  const handledSeq = useRef<number | null>(null);
   useEffect(() => {
-    if (!map || !cmd) return;
+    if (!map || !cmd || handledSeq.current === cmd.seq) return;
+    handledSeq.current = cmd.seq;
+    if (Date.now() - cmd.at > 10_000) return;
+    fitted.current = true;                       // the first automatic fit must not override it
     if (cmd.type === "fit") fitAll();
     else if (cmd.type === "north") map.easeTo({ bearing: 0, duration: 500 });
     else if (cmd.type === "flyTo") {
       if (mode === "live") setPrefs({ follow: false });
       map.flyTo({ center: [cmd.lon, cmd.lat], zoom: Math.max(map.getZoom(), 17), duration: 900, pitch: map.getPitch() });
     }
-  }, [cmd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cmd, map]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="relative h-full w-full" style={{ background: "var(--gs-map-grid)" }}>

@@ -20,6 +20,9 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: false,
     timeout: 30_000,
-    env: { GS_PORT: String(PORT), GS_HOST: "127.0.0.1", GS_DATA_DIR: DATA, GS_BEACON_TARGETS: "127.0.0.1", GS_BEACON_PORT: "5099" },
+    // Hermetic: the station itself has no internet either (all upstream tile/terrain fetches fail),
+    // exactly like the field laptop on the DRONE-EDGE hotspot.
+    env: { GS_PORT: String(PORT), GS_HOST: "127.0.0.1", GS_DATA_DIR: DATA, GS_BEACON_TARGETS: "127.0.0.1", GS_BEACON_PORT: "5099",
+      HTTPS_PROXY: "http://127.0.0.1:9", HTTP_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost" },
   },
 });

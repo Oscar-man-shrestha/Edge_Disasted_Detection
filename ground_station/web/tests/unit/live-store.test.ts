@@ -80,3 +80,22 @@ describe("live store", () => {
     expect(visibleAlerts(s, { ...DEFAULT_PREFS, types: ["fire"] }).map((a) => a.id)).toEqual([5, 3]);
   });
 });
+
+describe("resync merge", () => {
+  beforeEach(reset);
+  it("keeps alerts that arrived over SSE after the snapshot was taken", () => {
+    useLive.getState().hydrate(state());                                    // alerts 1, 2
+    useLive.getState().applyEvent("alert", { alert: alert(50), server_time: 1 });
+    // an older snapshot (taken before alert 50 existed) arrives late
+    useLive.getState().hydrate(state());
+    expect(useLive.getState().alerts[50]).toBeDefined();
+    expect(Object.keys(useLive.getState().alerts).map(Number).sort((a, b) => a - b)).toEqual([1, 2, 50]);
+  });
+  it("still drops alerts of another mission after a mission change", () => {
+    useLive.getState().hydrate(state());
+    useLive.getState().applyEvent("alert", { alert: alert(50), server_time: 1 });
+    const m2 = { ...state().mission, id: 2 };
+    useLive.getState().hydrate(state({ mission: m2, alerts: [] }));
+    expect(useLive.getState().alerts[50]).toBeUndefined();
+  });
+});

@@ -1,5 +1,5 @@
 import { Bell, Camera, Gauge as GaugeIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServerNow } from "../../hooks/useServerNow";
 import type { DronePose } from "../../lib/geo";
 import { isNum } from "../../lib/format";
@@ -23,6 +23,10 @@ export default function LiveView() {
   const { selectedId, select } = useSelection();
   const now = useServerNow(1000);
   const [sheet, setSheet] = useState<null | "camera" | "flight" | "alerts">(null);
+  // Below lg the alert drawer is a sheet: selecting an alert (map, toast, banner, palette) opens it.
+  useEffect(() => {
+    if (selectedId != null && !window.matchMedia?.("(min-width: 1024px)").matches) setSheet("alerts");
+  }, [selectedId]);
 
   const g = telemetry?.gps;
   const live = linkState({ telemetryAt }, now).state === "live";
@@ -40,7 +44,7 @@ export default function LiveView() {
       <div className="absolute inset-0">
         <ErrorBoundary name="Map">
           <MissionMap mode="live" drone={drone} droneStale={!hasFix || !live} trail={trail} alerts={mapAlerts}
-            selectedId={selectedId} onSelectAlert={(id) => { select(id); setSheet((s) => (s ? "alerts" : s)); }} />
+            selectedId={selectedId} onSelectAlert={select} />
         </ErrorBoundary>
       </div>
 

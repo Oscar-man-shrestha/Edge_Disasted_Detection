@@ -25,6 +25,7 @@ export function Notifier() {
         label: "View",
         onClick: () => {
           useSelection.getState().select(a.id);
+          window.location.hash = "#/live";
           if (a.lat != null && a.lon != null) useMapCommand.getState().send({ type: "flyTo", lat: a.lat, lon: a.lon });
         },
       },

@@ -12,8 +12,13 @@ export function LinkPill() {
     : link.state === "live" ? `LIVE${drone ? ` · ${drone}` : ""}`
     : link.state === "lost" ? `LINK LOST · ${Math.round(link.age_s ?? 0)} s` : "WAITING FOR DRONE";
   const tone = connection === "reconnecting" ? "warn" : link.state;
+  // Screen readers hear state changes only, never the ticking "N s" age.
+  const spoken = connection === "reconnecting" ? "Reconnecting to the ground station"
+    : link.state === "live" ? "Drone link live" : link.state === "lost" ? "Drone link lost" : "Waiting for drone";
   return (
-    <div data-testid="link-pill" role="status" aria-live="polite"
+    <>
+    <span data-testid="link-announcer" aria-live="polite" className="sr-only">{spoken}</span>
+    <div data-testid="link-pill"
       className={cn("inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-bold tracking-wide whitespace-nowrap",
         tone === "live" && "border-good/60 bg-good/10 text-text",
         tone === "lost" && "animate-pulse border-critical bg-critical/20 text-text",
@@ -24,6 +29,7 @@ export function LinkPill() {
         tone === "never" && "bg-muted", tone === "warn" && "bg-warn")} />
       {text}
     </div>
+    </>
   );
 }
 

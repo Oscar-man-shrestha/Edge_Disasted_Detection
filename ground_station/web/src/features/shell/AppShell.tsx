@@ -2,6 +2,7 @@ import { Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { toast } from "sonner";
 import { updateAlert } from "../../lib/api";
+import type { Alert, AlertStatus } from "../../lib/types";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { AppRoutes } from "../../routes";
@@ -14,9 +15,19 @@ import { NavRail } from "./NavRail";
 import { Notifier } from "./Notifier";
 import { ShortcutHelp } from "./ShortcutHelp";
 
-async function setSelectedStatus(status: "acknowledged" | "resolved") {
+/** What the A / R shortcut should set, or null: never reopens a resolved alert. */
+export function shortcutStatus(a: Alert | undefined, key: "a" | "r"): AlertStatus | null {
+  if (!a) return null;
+  if (key === "a") return a.status === "new" ? "acknowledged" : null;
+  return a.status === "resolved" ? null : "resolved";
+}
+
+async function shortcutAlert(key: "a" | "r") {
+  if (document.querySelector('[role="dialog"]')) return;        // never act behind an open dialog
   const id = useSelection.getState().selectedId;
-  if (id == null) return;
+  const target = id == null ? undefined : useLive.getState().alerts[id];
+  const status = shortcutStatus(target, key);
+  if (!status || id == null) return;
   try {
     const a = await updateAlert(id, { status });
     useLive.getState().applyEvent("alert_update", { alert: a });
@@ -31,8 +42,8 @@ export function AppShell() {
   useShortcuts({
     "mod+k": () => overlays({ palette: true }),
     "?": () => overlays({ help: true }),
-    a: () => setSelectedStatus("acknowledged"),
-    r: () => setSelectedStatus("resolved"),
+    a: () => shortcutAlert("a"),
+    r: () => shortcutAlert("r"),
     f: () => setPrefs({ follow: !prefs.follow }),
     "3": () => setPrefs({ map3d: !prefs.map3d }),
     n: () => useMapCommand.getState().send({ type: "north" }),

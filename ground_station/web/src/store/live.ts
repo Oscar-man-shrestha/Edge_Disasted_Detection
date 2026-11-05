@@ -41,6 +41,14 @@ export const useLive = create<LiveState>()((set, get) => ({
     const seen = new Set(st.seen);
     const missed: Alert[] = [];
     const alerts: Record<number, Alert> = {};
+    // Merge, don't replace: alerts that arrived over SSE after this snapshot was taken
+    // (higher ids, same mission) must survive a late /api/state response.
+    if (st.mission && st.mission.id === s.mission.id) {
+      const snapMax = s.alerts.reduce((m, a) => Math.max(m, a.id), 0);
+      for (const a of Object.values(st.alerts)) {
+        if (a.id > snapMax && a.mission_id === s.mission.id) alerts[a.id] = a;
+      }
+    }
     for (const a of s.alerts) {
       alerts[a.id] = a;
       // first load: history; later (re)loads: alerts that arrived while the stream was down

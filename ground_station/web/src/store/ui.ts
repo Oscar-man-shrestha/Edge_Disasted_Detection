@@ -20,8 +20,8 @@ export type MapCommand =
   | { type: "fit" } | { type: "north" } | { type: "flyTo"; lat: number; lon: number };
 
 /** One-shot commands for the map (palette/shortcuts/drawer -> MissionMap). */
-export const useMapCommand = create<{ cmd: (MapCommand & { seq: number }) | null; send(c: MapCommand): void }>()(
-  (set, get) => ({ cmd: null, send: (c) => set({ cmd: { ...c, seq: (get().cmd?.seq ?? 0) + 1 } }) }),
+export const useMapCommand = create<{ cmd: (MapCommand & { seq: number; at: number }) | null; send(c: MapCommand): void }>()(
+  (set, get) => ({ cmd: null, send: (c) => set({ cmd: { ...c, seq: (get().cmd?.seq ?? 0) + 1, at: Date.now() } }) }),
 );
 
 export const useOverlays = create<{ palette: boolean; help: boolean; newMission: boolean;

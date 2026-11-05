@@ -1,4 +1,4 @@
-import { expect, mapState, STATION, test, waitLive } from "./fixtures";
+import { expect, mapState, postAlert, STATION, test, waitLive } from "./fixtures";
 
 test.describe("ground station (real Flask station + demo drone)", () => {
   test("live: LIVE, moving drone, updating preview", async ({ page, demoDrone }) => {
@@ -82,4 +82,34 @@ test.describe("ground station (real Flask station + demo drone)", () => {
     expect(k).toBeGreaterThanOrEqual(a);
     expect(k).toBeLessThanOrEqual(b);
   });
+
+  test("map markers keep their identity across frames (clickable, focusable)", async ({ page, request, demoDrone }) => {
+    void demoDrone;
+    // >25 alerts -> clustered mode: a tight group (a cluster) plus spread-out singles (plain markers)
+    for (let i = 0; i < 26; i++) await postAlert(request, 12.9705 + i * 0.00002, 77.5902 + (i % 5) * 0.00003);
+    for (let i = 0; i < 4; i++) await postAlert(request, 12.9712 + i * 0.0012, 77.5918);
+    await page.goto("/?debug=1#/live");
+    await waitLive(page);
+    const marker = page.locator(".gs-amark").first();
+    await expect(marker).toBeVisible();
+    await marker.evaluate((el) => { (window as any).__probe = el; });
+    await page.waitForTimeout(1500);                          // follow mode re-centres every frame
+    expect(await page.evaluate(() => (window as any).__probe.isConnected)).toBe(true);
+  });
+
+  test("fly to an alert from another view (palette) lands on the alert", async ({ page, request, demoDrone }) => {
+    void demoDrone;
+    const id = await postAlert(request, 12.9850, 77.6050, "person");
+    await page.goto("/?debug=1#/missions");
+    await expect(page.getByRole("heading", { name: "Missions" })).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await page.getByPlaceholder("Type a command or search…").fill(`alert ${id} `);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/#\/live/);
+    await expect.poll(async () => {
+      const m = await mapState(page);
+      return m ? Math.abs(m.lat - 12.985) + Math.abs(m.lng - 77.605) : 1;
+    }, { timeout: 8000 }).toBeLessThan(0.002);
+  });
 });
+
