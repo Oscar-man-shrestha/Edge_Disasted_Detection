@@ -156,7 +156,7 @@ sudo jetson/hotspot.sh --password 'choose-a-good-one'   # or pick your own (8+ c
 
 **You don't need to type any IP address.** The ground station announces itself on the Wi-Fi every 2 s (UDP port 5005), and the drone connects to whichever station it hears (`EDGE_SERVER_URL=auto`, the default).
 
-1. **Laptop:** join the `DRONE-EDGE` Wi-Fi, then start the station and open the dashboard at http://localhost:5000:
+1. **Laptop:** join the `DRONE-EDGE` Wi-Fi, then start the station and open the dashboard at http://localhost:5050:
 
    ```bash
    python ground_station/app.py
@@ -181,7 +181,7 @@ Notes:
   ```
 
 - **Extra security:** set the same key on both sides, `GS_LINK_KEY=...` on the laptop and `EDGE_LINK_KEY=...` on the Nano. The station then ignores anything sent without the key.
-- **Fixed address instead of discovery:** `EDGE_SERVER_URL=http://<laptop-ip>:5000`.
+- **Fixed address instead of discovery:** `EDGE_SERVER_URL=http://<laptop-ip>:5050`.
 - **Demo without the Nano:** `python ground_station/demo_drone.py` simulates a drone flying, spotting a fire and a person. Use `--no-gps` to show the "no fix" handling.
 - **Indoor test:** point the webcam at a fire video on a phone or monitor. If an alert shows `no fix`, the GPS had no valid position at that moment; the alert is still stored and sent.
 - **Stopping:** Ctrl+C (or `systemctl stop`) stops cleanly and sends any buffered alerts. If the link drops, alerts wait on the drone and are sent when it comes back.
@@ -206,7 +206,7 @@ To turn it off: `sudo systemctl disable --now edge-drone`.
 | All-black frames | the webcam privacy shutter is closed |
 | `no NMEA data on /dev/ttyTHS1` | TX/RX not crossed, `nvgetty` still enabled, or no power to the GPS |
 | GPS `no fix` indoors | normal: go outside |
-| Dashboard says WAITING FOR DRONE | the drone has not found the station. Check: laptop joined `DRONE-EDGE`; the laptop firewall allows Python on TCP 5000 (incoming) and UDP 5005; the Nano log shows `[link] ground station found at ...`. To skip discovery, set `EDGE_SERVER_URL=http://<laptop-ip>:5000`. Test with `curl http://<laptop-ip>:5000/health` from the Nano. |
+| Dashboard says WAITING FOR DRONE | the drone has not found the station. Check: laptop joined `DRONE-EDGE`; the laptop firewall allows Python on TCP 5050 (incoming) and UDP 5005; the Nano log shows `[link] ground station found at ...`. To skip discovery, set `EDGE_SERVER_URL=http://<laptop-ip>:5050`. Test with `curl http://<laptop-ip>:5050/health` from the Nano. |
 | LINK LOST on the dashboard | the Wi-Fi link dropped or the pipeline stopped. Alerts are kept on the drone and arrive when the link is back. |
 | Map is blank in the field | those tiles were never cached: open the area once with internet, or use `tiles.py prefetch` |
 | `power source: none` | not running on the Jetson, or `/sys` not visible in the container |

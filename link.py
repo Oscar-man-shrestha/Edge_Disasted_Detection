@@ -24,6 +24,7 @@ from alert_store import AlertStore
 
 SERVICE = "edge-gs"
 STATION_TIMEOUT_S = 10.0
+DEFAULT_STATION_PORT = 5050      # station default (5000 is taken by macOS AirPlay)
 ACTIVE_WINDOW_S = 3.0
 BOX_COLORS = {"person": (255, 150, 40), "fire": (0, 0, 255), "smoke": (180, 180, 180)}
 BACKOFF_MAX_S = 8.0
@@ -129,7 +130,7 @@ class StationFinder:
         if not isinstance(msg, dict) or msg.get("service") != SERVICE:
             return
         try:
-            url = "http://%s:%d" % (ip, int(msg.get("port", 5000)))
+            url = "http://%s:%d" % (ip, int(msg.get("port", DEFAULT_STATION_PORT)))
         except (TypeError, ValueError):
             return
         now = time.time() if now is None else now

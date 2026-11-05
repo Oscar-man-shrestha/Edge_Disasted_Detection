@@ -1,8 +1,8 @@
 """Ground station: receives the drone's alerts, telemetry and previews; serves the dashboard.
 
-    python ground_station/app.py          # http://localhost:5000, beacon on UDP 5005
+    python ground_station/app.py          # http://localhost:5050, beacon on UDP 5005
 
-Environment: GS_HOST (default 0.0.0.0), GS_PORT (5000), GS_DATA_DIR (ground_station/received),
+Environment: GS_HOST (default 0.0.0.0), GS_PORT (5050), GS_DATA_DIR (ground_station/received),
 GS_LINK_KEY (shared key the drone must send), GS_BEACON_TARGETS, GS_BEACON_PORT.
 """
 import json
@@ -24,6 +24,8 @@ from tiles import tiles_blueprint
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PRIORITY = {"person": 1, "fire": 2, "smoke": 3}
+# Not 5000: on macOS the AirPlay Receiver (Control Center) listens there and answers 403.
+DEFAULT_PORT = 5050
 LINK_LOST_SEC = 3.0
 PREVIEW_MAX_BYTES = 500 * 1024
 DRONE_ROUTES = ("/alert", "/api/telemetry", "/api/preview")
@@ -339,7 +341,7 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
 
 def main():
     host = os.environ.get("GS_HOST", "0.0.0.0")
-    port = int(os.environ.get("GS_PORT", "5000"))
+    port = int(os.environ.get("GS_PORT", str(DEFAULT_PORT)))
     data_dir = os.environ.get("GS_DATA_DIR") or None
     targets = os.environ.get("GS_BEACON_TARGETS", "255.255.255.255,10.42.0.255").split(",")
     beacon_port = int(os.environ.get("GS_BEACON_PORT", str(DEFAULT_BEACON_PORT)))

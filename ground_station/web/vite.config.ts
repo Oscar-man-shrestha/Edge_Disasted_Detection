@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-const STATION = process.env.GS_DEV_STATION ?? "http://127.0.0.1:5000";
+const STATION = process.env.GS_DEV_STATION ?? "http://127.0.0.1:5050";
 const proxied = ["/api", "/alert", "/snap", "/tiles", "/terrain", "/report", "/health"];
 
 export default defineConfig({

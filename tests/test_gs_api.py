@@ -254,3 +254,9 @@ def test_index_without_build_503(tmp_path):
     r = c.get("/")
     assert r.status_code == 503
     assert "npm ci && npm run build" in r.get_data(as_text=True)
+
+
+def test_default_port_avoids_macos_airplay():
+    """macOS AirPlay Receiver owns port 5000 (answers 403 AirTunes), so the station defaults to 5050."""
+    import app as station
+    assert station.DEFAULT_PORT == 5050

@@ -39,7 +39,7 @@ Then set `SOURCE = "data/mixed_test.mp4"` in `config.py`.
 | `python test_stage1.py` | Stage 1 gate on the video |
 | `python test_stage2.py` | gated pipeline + timing |
 | `python check_fire_model.py [video]` | sanity-check the fire model on a few frames |
-| `python ground_station\app.py` | ground station dashboard at http://localhost:5000 (the drone finds it automatically) |
+| `python ground_station\app.py` | ground station dashboard at http://localhost:5050 (the drone finds it automatically) |
 | `python ground_station\demo_drone.py` | simulated drone, to demo the dashboard without the Jetson |
 | `python ground_station\tiles.py prefetch --bbox ... --zoom 14-18 [--terrain]` | download map (and 3D terrain) tiles for offline use |
 | `cd ground_station\web && npm ci && npm run dev` | work on the dashboard UI (React + TypeScript; see GUIDE.md → "Working on the dashboard UI") |
@@ -57,7 +57,7 @@ Settings live in `config.py`. These can be overridden by environment variables:
 | `EDGE_DEVICE` | `cpu` | `0` = first CUDA GPU (Jetson) |
 | `EDGE_PERSON_WEIGHTS` | `weights/yolov8n.pt` | person model (`.pt`, `.engine`, `.onnx`) |
 | `EDGE_FIRE_WEIGHTS` | `weights/fire_smoke.pt` | fire/smoke model |
-| `EDGE_SERVER_URL` | `auto` | `auto` finds the ground station by its beacon; or `http://host:5000` |
+| `EDGE_SERVER_URL` | `auto` | `auto` finds the ground station by its beacon; or `http://host:5050` |
 | `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | drone name on the dashboard; shared key (must match `GS_LINK_KEY`) |
 | `EDGE_GPS` | `sim` | `sim`, `nmea` (u-blox M8N on serial) or `mavlink` (flight controller) |
 | `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / `0` (auto) | serial port for `nmea` |
@@ -65,7 +65,7 @@ Settings live in `config.py`. These can be overridden by environment variables:
 | `EDGE_MOTION_COMP` | `1` | Stage 1 camera-motion compensation on/off |
 | `EDGE_STAGE2_EVERY_N` | `3` | while a detection is confirmed, run Stage 2 on every Nth triggered frame |
 | `EDGE_DB_PATH` | `data/alerts.db` | drone-side alert buffer |
-| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5000` / `ground_station/received` | ground station (`127.0.0.1` = this laptop only) |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5050` / `ground_station/received` | ground station (`127.0.0.1` = this laptop only) |
 | `GS_LINK_KEY` / `GS_BEACON_TARGETS` | none / `255.255.255.255,10.42.0.255` | shared key the drone must send; where the station announces itself |
 
 ## Benchmark (laptop CPU, one test video: 48 calm + 59 fire frames)

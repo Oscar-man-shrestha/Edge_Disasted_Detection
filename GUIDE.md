@@ -48,7 +48,7 @@ This guide takes you from a box of parts to a working drone that spots **fire, s
    5 V 4 A power ──barrel jack──►│
                                   ▼  own Wi-Fi network "DRONE-EDGE"
  ON THE GROUND ─────────────────────────────────────────────────────────────────────
-   LAPTOP: python ground_station/app.py   →  http://localhost:5000
+   LAPTOP: python ground_station/app.py   →  http://localhost:5050
      Live      live map (2D/3D), drone position and heading, camera picture, drone health,
                alerts with sound, Acknowledge / Resolve
      Replay    replay the whole flight on a timeline
@@ -147,21 +147,21 @@ python ground_station/app.py
 ```
 **✅ Check:**
 ```
-Ground station on http://localhost:5000  (host <your-laptop>, 0.0.0.0)
+Ground station on http://localhost:5050  (host <your-laptop>, 0.0.0.0)
 Beacon: UDP 5005 -> 255.255.255.255, 10.42.0.255
 ```
 
 **Terminal 2** (activate the venv first), **run:**
 ```bash
-python ground_station/demo_drone.py --station http://localhost:5000
+python ground_station/demo_drone.py --station http://localhost:5050
 ```
-**✅ Check:** `demo drone 'demo-drone': station=http://localhost:5000 …`. After about 30 s it prints `ALERT #1 fire …`.
+**✅ Check:** `demo drone 'demo-drone': station=http://localhost:5050 …`. After about 30 s it prints `ALERT #1 fire …`.
 
 > The demo runs the **real drone code**; only the camera, AI and sensors are simulated. Use it any time you want to demo the system without the Nano.
 
 ### Step 9: Tour the dashboard (laptop)
 
-**Do:** open **http://localhost:5000** in Chrome, Edge or Firefox. Click the 🔔 bell once (browsers only allow sound after one click).
+**Do:** open **http://localhost:5050** in Chrome, Edge or Firefox. Click the 🔔 bell once (browsers only allow sound after one click).
 
 **✅ Check, in the Live view (default):**
 - [ ] The top bar shows **LIVE · demo-drone** in green, `SIM GPS`, the mission timer, and alert counters (person / fire / smoke).
@@ -496,7 +496,7 @@ If you need home internet on the Nano again (for updates), **run** `sudo jetson/
 source venv/bin/activate          # Windows: venv\Scripts\Activate.ps1
 python ground_station/app.py
 ```
-Then open **http://localhost:5000**. **✅ Check:** the top bar says **WAITING FOR DRONE**.
+Then open **http://localhost:5050**. **✅ Check:** the top bar says **WAITING FOR DRONE**.
 
 ### Step 36: Start the pipeline (Nano, SSH to 10.42.0.1)
 
@@ -514,7 +514,7 @@ jetson/run_docker.sh python3 run_pipeline.py
 [gps] nmea /dev/ttyTHS1 @ 9600 baud …
 [link] station: auto (waiting for the ground station beacon on UDP 5005)
 [camera] usb 1280x720 @ 30 fps
-[link] ground station found at http://10.42.0.xx:5000
+[link] ground station found at http://10.42.0.xx:5050
 ```
 **✅ Check (dashboard), within about 2 s:**
 - **LIVE · `<nano name>`**
@@ -651,13 +651,14 @@ journalctl -u edge-drone -f
 
 | Symptom | Fix |
 |---|---|
+| `localhost:5050` shows nothing, or an old note says 5000 and you get "403" | the station isn't running (start it, Step 8). Port **5000** on a Mac belongs to **AirPlay Receiver** (403 AirTunes), which is why the station uses **5050**. Run on any free port with `GS_PORT=<port> python ground_station/app.py`. |
 | Nano won't power on from the barrel jack | J48 jumper missing (Step 13) |
 | Nano resets when the AI starts | weak power: use 5 V **4 A** with J48 (Step 13), or a stronger UBEC (Step 43) |
 | `Could not open source: 0` | webcam not plugged in (`ls /dev/video*`), Step 21 |
 | Camera picture is black | the webcam privacy shutter is closed |
 | `no NMEA data on /dev/tty…` | TX/RX not crossed, GPS not powered, or `nvgetty` still on (Step 24) |
 | GPS stuck at `no fix` | no sky view: go outside and wait up to 3 min |
-| Dashboard stuck on **WAITING FOR DRONE** | laptop not on DRONE-EDGE; firewall blocking Python (Step 33); the Nano log lacks `ground station found`. Workaround: `EDGE_SERVER_URL=http://<laptop-ip>:5000` on the Nano. Test from the Nano: `curl http://<laptop-ip>:5000/health`. |
+| Dashboard stuck on **WAITING FOR DRONE** | laptop not on DRONE-EDGE; firewall blocking Python (Step 33); the Nano log lacks `ground station found`. Workaround: `EDGE_SERVER_URL=http://<laptop-ip>:5050` on the Nano. Test from the Nano: `curl http://<laptop-ip>:5050/health`. |
 | **Reconnecting…** in the top bar | the station isn't running or the laptop lost Wi-Fi. It recovers by itself once it's back. |
 | **LINK LOST** while flying | out of Wi-Fi range or the pipeline stopped. Alerts are buffered and arrive later. |
 | Map grey or blank in the field | the area wasn't saved: redo Step 10 Do 5 at home |
@@ -757,8 +758,8 @@ You need this only if you change the dashboard. Running the station never needs 
 
 | Where | Command | What it does |
 |---|---|---|
-| laptop | `python ground_station/app.py` | ground station + dashboard (http://localhost:5000) |
-| laptop | `python ground_station/demo_drone.py --station http://localhost:5000` | simulated drone |
+| laptop | `python ground_station/app.py` | ground station + dashboard (http://localhost:5050) |
+| laptop | `python ground_station/demo_drone.py --station http://localhost:5050` | simulated drone |
 | laptop | `python ground_station/tiles.py prefetch --bbox lat1,lon1,lat2,lon2 --zoom 14-18 --terrain` | save map + 3D terrain for offline use |
 | laptop | `python -m pytest` | backend tests |
 | laptop | `cd ground_station/web && npm test` | dashboard tests |
@@ -782,17 +783,17 @@ You need this only if you change the dashboard. Running the station never needs 
 | `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | `.pt`, `.engine` (TensorRT) or `.onnx` |
 | `EDGE_GPS` | `sim` | `nmea` for the M8N, `sim` for the simulated path, `mavlink` for a flight controller |
 | `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / auto | GPS serial port |
-| `EDGE_SERVER_URL` | `auto` | finds the laptop by itself, or `http://<laptop-ip>:5000` |
+| `EDGE_SERVER_URL` | `auto` | finds the laptop by itself, or `http://<laptop-ip>:5050` |
 | `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | name on the dashboard / shared key |
 | `EDGE_MOTION_COMP` / `EDGE_STAGE2_EVERY_N` | `1` / `3` | Stage 1 motion compensation / YOLO frequency while confirmed |
-| `GS_HOST` / `GS_PORT` | `0.0.0.0` / `5000` | station address (`127.0.0.1` = this laptop only) |
+| `GS_HOST` / `GS_PORT` | `0.0.0.0` / `5050` | station address (`127.0.0.1` = this laptop only) |
 | `GS_DATA_DIR` / `GS_LINK_KEY` | `ground_station/received` / none | station data folder / key the drone must send |
 
 ### Ports
 
 | Port | Used for |
 |---|---|
-| TCP 5000 | drone → laptop (alerts, status, pictures), and the dashboard |
+| TCP 5050 | drone → laptop (alerts, status, pictures), and the dashboard |
 | UDP 5005 | the laptop announces itself to the drone |
 
 ### Where data is stored

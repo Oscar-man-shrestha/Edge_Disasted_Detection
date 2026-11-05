@@ -5,7 +5,7 @@ only the camera, YOLO and board sensors are simulated.
 
     python ground_station/app.py                       # terminal 1
     python ground_station/demo_drone.py                # terminal 2 (finds the station by beacon)
-    python ground_station/demo_drone.py --video data/mixed_test.mp4 --station http://localhost:5000
+    python ground_station/demo_drone.py --video data/mixed_test.mp4 --station http://localhost:5050
     python ground_station/demo_drone.py --no-gps       # test the "no fix" handling
 
 Scenario (repeats every --cycle seconds): calm flight, then a fire appears at 35 %

@@ -128,13 +128,13 @@ Design: [spec](docs/superpowers/specs/2026-11-05-ground-station-ui-v3-design.md)
 | `EDGE_SOURCE` | `data/mixed_test.mp4` | video, `0` (USB webcam), `csi`, GStreamer pipeline, or MJPEG URL |
 | `EDGE_DEVICE` | `cpu` | `0` = Jetson GPU |
 | `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | `.pt`, `.engine` or `.onnx` |
-| `EDGE_SERVER_URL` | `auto` | finds the station by its beacon, or a fixed `http://host:5000` |
+| `EDGE_SERVER_URL` | `auto` | finds the station by its beacon, or a fixed `http://host:5050` |
 | `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | name on the dashboard / shared key |
 | `EDGE_GPS` | `sim` | `sim`, `nmea` (M8N) or `mavlink` |
 | `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / auto | M8N serial port |
 | `EDGE_MOTION_COMP` | `1` | Stage 1 motion compensation |
 | `EDGE_STAGE2_EVERY_N` | `3` | Stage 2 frequency while confirmed (`1` = old behaviour) |
-| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5000` / `ground_station/received` | ground station |
+| `GS_HOST` / `GS_PORT` / `GS_DATA_DIR` | `0.0.0.0` / `5050` / `ground_station/received` | ground station |
 | `GS_LINK_KEY` / `GS_BEACON_TARGETS` | none / `255.255.255.255,10.42.0.255` | required drone key / where the beacon is sent |
 
 ---

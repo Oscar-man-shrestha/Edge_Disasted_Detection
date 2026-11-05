@@ -201,3 +201,10 @@ def test_run_pipeline_end_to_end(tmp_config, fast_link, station, tmp_path, monke
     assert station.config["LIVE"]["telemetry"] is not None
     assert station.config["LIVE"]["preview_jpeg"] is not None
     assert AlertStore().counts()["buffered"] == 0
+
+
+def test_beacon_without_port_falls_back_to_5050():
+    from link import StationFinder
+    f = StationFinder(port=free_udp_port())
+    f._on_beacon("10.42.0.20", {"service": "edge-gs", "v": 1}, now=100.0)
+    assert f.url(now=100.5) == "http://10.42.0.20:5050"
