@@ -18,7 +18,8 @@ Lenovo FHD USB webcam · u-blox NEO-M8N GPS + compass · 5 V barrel power · Mac
 | Docker base image `ultralytics/ultralytics:latest-jetson-jetpack4` | ✅ 5.6 GB, finished 16:31 (Nano clock) |
 | Our image `edge-drone` | ✅ built |
 | AI check on the GPU (both models, real webcam frame) | ✅ |
-| TensorRT FP16 engines | ⏳ building overnight |
+| TensorRT FP16 engines | ✅ ~2.3x faster, work offline |
+| **First live run: Nano webcam → AI → Mac dashboard** | ✅ auto-discovery over USB, LIVE · nano-01 |
 | Ground station on the Mac (port 5050) | ✅ running, "Waiting for drone" |
 | Nano → Mac station link over USB (`192.168.55.100:5050`) | ✅ tested |
 | Camera snapshot / AI check / first live run | ⏳ next |
@@ -141,6 +142,42 @@ Pictures with boxes saved on the Nano: `data/ai_check_person.jpg`, `data/ai_chec
 DOCKER=docker setsid nohup jetson/run_docker.sh python3 export_trt.py > ~/trt_export.log 2>&1 &
 ```
 Builds FP16 engines `weights/yolov8n.engine` and `weights/fire_smoke.engine` (device-specific, never commit them).
+- Took **~11 minutes** for both (ONNX → TensorRT 8.2.0.6), not an hour.
+- **Problem:** loading an `.engine` failed with `module 'numpy' has no attribute 'bool'` (TensorRT 8.2 vs numpy 1.24),
+  and Ultralytics "fixed" it by **pip-installing numpy 1.23.5 at runtime**, every run, which needs internet. Would break in the field.
+- **Fix (commit `7c00e04`):** `jetson/Dockerfile` pins `numpy==1.23.5`; `stage2_detector.py` adds an `np.bool` shim.
+  Rebuilt the image, then verified the real detector with **`--network none`** (no internet at all) ✅.
+
+**Speed on the Nano (MAXN, 640 px, median of 10, webcam frame):**
+
+| Model | PyTorch FP32 | TensorRT FP16 | Speed-up |
+|---|---|---|---|
+| Person (YOLOv8n) | 368 ms | **150 ms** | 2.5x |
+| Fire/smoke (YOLO26n) | 267 ms | **129 ms** | 2.1x |
+| Both together (real `Stage2Detector`) | ~635 ms | **272 ms** | 2.3x |
+
+### 13. First live run (Nano → Mac, over the USB cable)
+On the Nano (TensorRT engines, webcam, simulated GPS until the M8N is wired):
+```bash
+cd ~/Edge_Disasted_Detection_Project
+EDGE_SOURCE=0 EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine \
+EDGE_GPS=sim EDGE_DRONE_ID=nano-01 EDGE_SERVER_URL=auto DOCKER=docker \
+setsid nohup jetson/run_docker.sh python3 run_pipeline.py > ~/live_run.log 2>&1 &
+```
+Log:
+```
+[camera] usb 1280x720 @ 30 fps
+[link] ground station found at http://192.168.55.100:5050      ← found by itself via the UDP beacon
+```
+Telemetry received by the station: 1.8 frames/s sampled (2 per second by design), **Stage 1 gate 22 ms**,
+state "scanning", CPU/GPU 30 °C, **2.5 W**, RAM 0.7 / 3.9 GB. Dashboard shows **LIVE · nano-01**, camera preview,
+flight panel and the (simulated) track on the map ✅.
+Stage 2 did not run because nothing moved in the dark room: the gate is doing its job (no wasted YOLO runs).
+
+To stop it: `docker ps` then `docker stop <id>` (on the Nano).
+
+### Left running overnight
+The live pipeline keeps running overnight as a **stability test** (temperature, memory, link drops).
 
 ### Mistake to undo on the Mac
 - A Nano-only command was run on the Mac with `sudo`, creating `/etc/sudoers.d/edge-docker` **on the Mac**.
@@ -149,9 +186,9 @@ Builds FP16 engines `weights/yolov8n.engine` and `weights/fire_smoke.engine` (de
 ### Security to-do
 - The Nano login password and the lowey Wi-Fi password were shared in chat. Change the Nano password with `passwd` when convenient.
 
-### Next
-1. Finish the Docker download → build `edge-drone`.
-2. Camera snapshot test (`True (720, 1280, 3)`).
-3. AI check: `jetson/run_docker.sh python3 check_fire_model.py`.
-4. First live run: Nano camera → YOLO → alerts on the Mac dashboard.
-5. GPS: NEO-M8N via a USB-TTL adapter (CP2102/CH340/FTDI) or the 40-pin header UART.
+### Next (needs a person in the room)
+1. **Fire test:** play a fire video on a phone in front of the webcam → expect a fire alert on the dashboard.
+2. **Person test:** walk in front of the webcam → person alert + red banner.
+3. **GPS:** NEO-M8N via a USB-TTL adapter (CP2102/CH340/FTDI) or the 40-pin header UART, then `EDGE_GPS=nmea`.
+4. Autostart on boot (`jetson/install_service.sh`, needs sudo once).
+5. Change the Nano password (`passwd`).
