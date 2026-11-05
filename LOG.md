@@ -76,6 +76,12 @@ wget -4 -c --tries=20 --read-timeout=20 -O weights/fire_smoke.pt https://hugging
 
 ### 6. Webcam
 - Plugged into a blue USB 3.0 port. `ls /dev/video*` → `/dev/video0`; `lsusb` → `17ef:4831 Lenovo` ✅.
+- **Snapshot test (no Docker needed)**, on the Nano, using GStreamer and the camera's MJPG mode:
+  ```bash
+  gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=30 ! image/jpeg,width=1280,height=720 ! multifilesink location=/tmp/cam_%02d.jpg
+  scp eshaan@192.168.55.1:/tmp/cam_29.jpg .      # on the Mac, to look at it
+  ```
+  Result: clear **1280x720** colour image of the room (frame 30, so auto-exposure has settled) ✅.
 
 ### 7. One-time setup `jetson/setup_nano.sh`
 - OK: board, MAXN power mode, Docker + NVIDIA runtime, swap 6 GB, both models present.
@@ -106,7 +112,7 @@ wget -4 -c --tries=20 --read-timeout=20 -O weights/fire_smoke.pt https://hugging
 
 ### Mistake to undo on the Mac
 - A Nano-only command was run on the Mac with `sudo`, creating `/etc/sudoers.d/edge-docker` **on the Mac**.
-  Harmless (it names a user that doesn't exist on the Mac), but remove it: `sudo rm /etc/sudoers.d/edge-docker`.
+  Harmless (it names a user that doesn't exist on the Mac). **Removed** with `sudo rm /etc/sudoers.d/edge-docker` ✅.
 
 ### Security to-do
 - The Nano login password and the lowey Wi-Fi password were shared in chat. Change the Nano password with `passwd` when convenient.
