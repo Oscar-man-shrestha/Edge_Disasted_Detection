@@ -19,6 +19,7 @@ import exports
 from discovery import DEFAULT_BEACON_PORT, Beacon
 from events import EventBus
 from store import Store
+import tiles as tiles_mod
 from tiles import tiles_blueprint
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -68,7 +69,8 @@ def _sorted(alerts):
     return sorted(alerts, key=lambda a: (PRIORITY.get(a["type"], 9), -a["id"]))
 
 
-def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir=None):
+def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir=None,
+               terrain_fetch=None):
     data_dir = data_dir or os.path.join(BASE, "received")
     snap_dir = os.path.join(data_dir, "snaps")
     os.makedirs(snap_dir, exist_ok=True)
@@ -82,6 +84,10 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
             "preview_t": None, "preview_stage2": False, "preview_received_at": None}
     app.config.update(STORE=store, BUS=bus, LIVE=live, DATA_DIR=data_dir, SNAP_DIR=snap_dir)
     app.register_blueprint(tiles_blueprint(os.path.join(data_dir, "tiles"), fetch=tile_fetch))
+    app.register_blueprint(tiles_blueprint(os.path.join(data_dir, "terrain"),
+                                           fetch=terrain_fetch or tiles_mod.terrain_fetch,
+                                           name="terrain", url_prefix="/terrain",
+                                           max_zoom=tiles_mod.MAX_ZOOM_TERRAIN))
 
     # ------------------------------------------------------------ drone auth
     @app.before_request

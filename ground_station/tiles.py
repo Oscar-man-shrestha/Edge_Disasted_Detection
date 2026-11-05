@@ -18,26 +18,38 @@ import time
 from flask import Blueprint, abort, send_file
 
 TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# AWS Open Data "Terrain Tiles" (Mapzen), Terrarium-encoded elevation PNGs, zoom 0-15
+TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+MAX_ZOOM_TERRAIN = 15
 USER_AGENT = "EdgeDisasterGS/1.0 (+https://github.com/Hisana-07/Edge_Disasted_Detection_Project)"
 MAX_ZOOM_SERVE = 19
 MAX_ZOOM_PREFETCH = 18
 MAX_PREFETCH = 3000
 PREFETCH_DELAY_S = 0.2
 DEFAULT_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "received", "tiles")
+DEFAULT_TERRAIN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "received", "terrain")
 
 
 def osm_fetch(z, x, y):
+    return _fetch(TILE_URL, z, x, y)
+
+
+def terrain_fetch(z, x, y):
+    return _fetch(TERRAIN_URL, z, x, y)
+
+
+def _fetch(url, z, x, y):
     import requests
     try:
-        r = requests.get(TILE_URL.format(z=z, x=x, y=y), timeout=(2, 5),
+        r = requests.get(url.format(z=z, x=x, y=y), timeout=(2, 5),
                          headers={"User-Agent": USER_AGENT})
     except requests.RequestException:
         return None
     return r.content if r.status_code == 200 and r.content else None
 
 
-def _valid(z, x, y):
-    return 0 <= z <= MAX_ZOOM_SERVE and 0 <= x < 2 ** z and 0 <= y < 2 ** z
+def _valid(z, x, y, max_zoom=MAX_ZOOM_SERVE):
+    return 0 <= z <= max_zoom and 0 <= x < 2 ** z and 0 <= y < 2 ** z
 
 
 def _path(cache_dir, z, x, y):
@@ -55,15 +67,15 @@ def _save(path, data):
 OFFLINE_BACKOFF_S = 30.0
 
 
-def tiles_blueprint(cache_dir, fetch=None):
+def tiles_blueprint(cache_dir, fetch=None, name="tiles", url_prefix="/tiles", max_zoom=MAX_ZOOM_SERVE):
     fetch = fetch or osm_fetch
-    bp = Blueprint("tiles", __name__)
+    bp = Blueprint(name, __name__)
     offline_until = [0.0]          # after a failed fetch, serve cache-only for a while:
                                    # hung lookups would tie up the browser's few connections
 
-    @bp.route("/tiles/<int:z>/<int:x>/<int:y>.png")
+    @bp.route(url_prefix + "/<int:z>/<int:x>/<int:y>.png")
     def tile(z, x, y):
-        if not _valid(z, x, y):
+        if not _valid(z, x, y, max_zoom):
             abort(404)
         path = _path(cache_dir, z, x, y)
         if not os.path.isfile(path):
@@ -108,6 +120,8 @@ def main(argv=None):
     p.add_argument("--bbox", required=True, help="lat1,lon1,lat2,lon2")
     p.add_argument("--zoom", default="14-17", help="e.g. 15 or 14-18 (max 18)")
     p.add_argument("--cache-dir", default=DEFAULT_CACHE)
+    p.add_argument("--terrain-cache-dir", default=DEFAULT_TERRAIN_CACHE)
+    p.add_argument("--terrain", action="store_true", help="also fetch 3D terrain tiles (zoom <= 15)")
     p.add_argument("--dry-run", action="store_true", help="only count tiles")
     a = ap.parse_args(argv)
     if a.cmd != "prefetch":
@@ -119,27 +133,32 @@ def main(argv=None):
     if zmax > MAX_ZOOM_PREFETCH:
         print("refusing: zoom above %d (OSM tile policy)" % MAX_ZOOM_PREFETCH)
         return 2
-    tiles = tile_range(lat1, lon1, lat2, lon2, zmin, zmax)
-    if len(tiles) > MAX_PREFETCH:
+    # jobs: (z, x, y, cache_dir, fetch)
+    jobs = [t + (a.cache_dir, osm_fetch) for t in tile_range(lat1, lon1, lat2, lon2, zmin, zmax)]
+    if a.terrain:
+        tz = min(zmax, MAX_ZOOM_TERRAIN)
+        jobs += [t + (a.terrain_cache_dir, terrain_fetch)
+                 for t in tile_range(lat1, lon1, lat2, lon2, min(zmin, tz), tz)]
+    if len(jobs) > MAX_PREFETCH:
         print("refusing: %d tiles > %d. Use a smaller area or fewer zoom levels."
-              % (len(tiles), MAX_PREFETCH))
+              % (len(jobs), MAX_PREFETCH))
         return 2
-    todo = [t for t in tiles if not os.path.isfile(_path(a.cache_dir, *t))]
-    print("%d tiles in area, %d not cached yet" % (len(tiles), len(todo)))
+    todo = [j for j in jobs if not os.path.isfile(_path(j[3], *j[:3]))]
+    print("%d tiles in area%s, %d not cached yet"
+          % (len(jobs), " (map + terrain)" if a.terrain else "", len(todo)))
     if a.dry_run:
         return 0
     got = 0
-    for i, (z, x, y) in enumerate(todo, 1):
-        data = osm_fetch(z, x, y)
+    for i, (z, x, y, cache, fetch) in enumerate(todo, 1):
+        data = fetch(z, x, y)
         if data:
-            _save(_path(a.cache_dir, z, x, y), data)
+            _save(_path(cache, z, x, y), data)
             got += 1
         if i % 50 == 0 or i == len(todo):
             print("  %d/%d" % (i, len(todo)))
         time.sleep(PREFETCH_DELAY_S)
-    print("downloaded %d tiles into %s" % (got, a.cache_dir))
+    print("downloaded %d tiles" % got)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

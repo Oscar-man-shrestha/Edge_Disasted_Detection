@@ -163,3 +163,41 @@ def test_tile_offline_backoff_skips_fetch(tmp_path):
     assert c.get("/tiles/3/2/2.png").status_code == 404   # within the backoff window
     assert c.get("/tiles/3/1/1.png").status_code == 404
     assert calls == [(3, 2, 1)]
+
+
+# ---------------------------------------------------------------- UI v3: terrain
+def test_terrain_cached_fetched_once(tmp_path):
+    calls = []
+
+    def fake(z, x, y):
+        calls.append((z, x, y))
+        return PNG
+    c = create_app(str(tmp_path / "gs"), watcher=False, terrain_fetch=fake).test_client()
+    for _ in range(2):
+        r = c.get("/terrain/3/2/1.png")
+        assert r.status_code == 200 and r.mimetype == "image/png" and r.data == PNG
+    assert calls == [(3, 2, 1)]
+
+
+def test_terrain_zoom_limit_404(tmp_path):
+    c = create_app(str(tmp_path / "gs"), watcher=False, terrain_fetch=lambda z, x, y: PNG).test_client()
+    assert c.get("/terrain/16/1/1.png").status_code == 404
+    assert c.get("/terrain/15/1/1.png").status_code == 200
+
+
+def test_terrain_offline_backoff_independent(tmp_path):
+    tile_calls = []
+    c = create_app(str(tmp_path / "gs"), watcher=False, terrain_fetch=lambda z, x, y: None,
+                   tile_fetch=lambda z, x, y: tile_calls.append(1) or PNG).test_client()
+    assert c.get("/terrain/3/2/1.png").status_code == 404
+    assert c.get("/tiles/3/2/1.png").status_code == 200
+    assert tile_calls == [1]
+
+
+def test_prefetch_terrain_counts(capsys):
+    args = ["prefetch", "--bbox", "12.97,77.59,12.98,77.60", "--zoom", "14-17", "--dry-run"]
+    assert tiles_main(args) == 0
+    plain = int(capsys.readouterr().out.split()[0])
+    assert tiles_main(args + ["--terrain"]) == 0
+    with_terrain = int(capsys.readouterr().out.split()[0])
+    assert with_terrain > plain
