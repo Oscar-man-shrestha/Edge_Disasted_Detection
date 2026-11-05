@@ -68,7 +68,7 @@ def _sorted(alerts):
     return sorted(alerts, key=lambda a: (PRIORITY.get(a["type"], 9), -a["id"]))
 
 
-def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
+def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir=None):
     data_dir = data_dir or os.path.join(BASE, "received")
     snap_dir = os.path.join(data_dir, "snaps")
     os.makedirs(snap_dir, exist_ok=True)
@@ -110,6 +110,7 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
                 and isinstance(gps.get("lon"), (int, float)):
             store.add_track_point(body.get("drone_id") or "drone", live["received_at"],
                                   gps["lat"], gps["lon"], gps.get("alt_m"))
+        store.add_telemetry_sample(body.get("drone_id") or "drone", live["received_at"], body)
         bus.publish("telemetry", {"telemetry": body})
         return jsonify(ok=True)
 
@@ -199,9 +200,28 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    def _json_object():
+        """Request body as a dict; {} when empty; None when it is not a JSON object."""
+        if not request.get_data(cache=True).strip():
+            return {}
+        body = request.get_json(silent=True)
+        return body if isinstance(body, dict) else None
+
+    def _mission_summary(m):
+        alerts, track = store.alerts(m["id"]), store.track(m["id"])
+        counts = {t: 0 for t in PRIORITY}
+        for a in alerts:
+            counts[a["type"]] = counts.get(a["type"], 0) + 1
+        m = dict(m)
+        m["alert_counts"] = counts
+        m["distance_m"] = sum(exports._dist_m(a, b) for a, b in zip(track, track[1:]))
+        return m
+
     @app.route("/api/alerts/<int:aid>", methods=["POST"])
     def update_alert(aid):
-        body = request.get_json(silent=True) or {}
+        body = _json_object()
+        if body is None:
+            return jsonify(error="expected a JSON object"), 400
         note = body.get("note")
         if note is not None and not isinstance(note, str):
             return jsonify(error="note must be text"), 400
@@ -217,8 +237,10 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
     @app.route("/api/missions", methods=["GET", "POST"])
     def missions():
         if request.method == "GET":
-            return jsonify(store.missions())
-        body = request.get_json(silent=True) or {}
+            return jsonify([_mission_summary(m) for m in store.missions()])
+        body = _json_object()
+        if body is None:
+            return jsonify(error="expected a JSON object"), 400
         name = body.get("name") if isinstance(body.get("name"), str) else None
         m = store.new_mission(name.strip()[:80] if name and name.strip() else None)
         bus.publish("mission", {"mission": m})
@@ -226,6 +248,14 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
 
     EXPORT_MIME = {"csv": "text/csv", "geojson": "application/geo+json",
                    "kml": "application/vnd.google-earth.kml+xml"}
+
+    @app.route("/api/missions/<int:mid>/timeline")
+    def timeline(mid):
+        m = store.mission(mid)
+        if m is None:
+            abort(404)
+        return jsonify(mission=m, server_time=time.time(), track=store.track(mid),
+                       telemetry=store.telemetry_log(mid), alerts=_sorted(store.alerts(mid)))
 
     @app.route("/api/missions/<int:mid>/export.<fmt>")
     def export(mid, fmt):
@@ -270,9 +300,18 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None):
     def health():
         return jsonify(ok=True, server_time=time.time())
 
+    ui_root = ui_dir or os.path.join(BASE, "static", "app")
+
     @app.route("/")
     def index():
-        return render_template("index.html")
+        page = os.path.join(ui_root, "index.html")
+        if not os.path.isfile(page):
+            return app.response_class(
+                "Dashboard not built. Run: cd ground_station/web && npm ci && npm run build\n",
+                status=503, mimetype="text/plain")
+        resp = send_from_directory(ui_root, "index.html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
     # ------------------------------------------------------------ link watcher
     if watcher:

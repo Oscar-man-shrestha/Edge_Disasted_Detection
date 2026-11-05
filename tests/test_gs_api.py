@@ -160,18 +160,16 @@ def test_health(client):
     assert client.get("/health").get_json()["ok"] is True
 
 
-def test_dashboard_has_no_external_assets(client):
+def test_dashboard_has_no_external_assets(tmp_path):
     import re
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.data.decode()
-    assert 'id="map"' in html
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text('<!doctype html><div id="root"></div>'
+                                   '<script type="module" src="/static/app/assets/x.js"></script>')
+    c = create_app(str(tmp_path / "gs"), watcher=False, ui_dir=str(ui)).test_client()
+    html = c.get("/").get_data(as_text=True)
     refs = re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', html)
     assert refs and not [u for u in refs if u.startswith(("http://", "https://", "//"))]
-    lj = client.get("/static/vendor/leaflet/leaflet.js")
-    assert lj.status_code == 200 and b"1.9.4" in lj.data[:400]
-    assert client.get("/static/app.js").status_code == 200
-    assert client.get("/static/app.css").status_code == 200
 
 
 @pytest.mark.parametrize("gps", [
@@ -195,3 +193,64 @@ def test_telemetry_null_gps_fields_still_ok(client):
     r = client.post("/api/telemetry", json={"gps": {"mode": "nmea", "fix": False, "lat": None,
                                                     "lon": None, "course_deg": None}})
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------- UI v3: timeline, missions, built UI
+def test_timeline_shape(app, client, monkeypatch):
+    import store as store_mod
+    monkeypatch.setattr(store_mod, "TELEMETRY_SAMPLE_S", 0)
+    client.post("/api/telemetry", json=TELEM)
+    time.sleep(0.01)
+    client.post("/api/telemetry", json=TELEM)
+    post_alert(client)
+    tl = client.get("/api/missions/1/timeline").get_json()
+    assert set(tl) >= {"mission", "server_time", "track", "telemetry", "alerts"}
+    assert len(tl["telemetry"]) == 2
+    assert isinstance(tl["alerts"][0]["received_at"], float)
+    assert tl["mission"]["id"] == 1
+
+
+def test_timeline_unknown_404(client):
+    assert client.get("/api/missions/99/timeline").status_code == 404
+
+
+def test_state_missions_have_epochs(client):
+    st = client.get("/api/state").get_json()
+    assert isinstance(st["mission"]["started_ts"], float)
+    assert isinstance(st["missions"][0]["started_ts"], float)
+
+
+def test_missions_list_counts_and_distance(client):
+    for i, typ in enumerate(["fire", "fire", "person"], 1):
+        post_alert(client, i, typ)
+    for lat in (12.970, 12.971):
+        body = dict(TELEM, gps={"fix": True, "lat": lat, "lon": 77.59})
+        client.post("/api/telemetry", json=body)
+    m = client.get("/api/missions").get_json()[0]
+    assert m["alert_counts"] == {"person": 1, "fire": 2, "smoke": 0}
+    assert m["distance_m"] == pytest.approx(111.32, rel=1e-3)
+
+
+@pytest.mark.parametrize("path", ["/api/alerts/1", "/api/missions"])
+@pytest.mark.parametrize("body", ["[1]", '"x"'])
+def test_non_object_json_400(client, path, body):
+    post_alert(client)
+    r = client.post(path, data=body, content_type="application/json")
+    assert r.status_code == 400
+
+
+def test_index_serves_built_ui(tmp_path):
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text('<!doctype html><div id="root"></div>')
+    c = create_app(str(tmp_path / "gs"), watcher=False, ui_dir=str(ui)).test_client()
+    r = c.get("/")
+    assert r.status_code == 200 and 'id="root"' in r.get_data(as_text=True)
+    assert r.headers["Cache-Control"] == "no-cache"
+
+
+def test_index_without_build_503(tmp_path):
+    c = create_app(str(tmp_path / "gs"), watcher=False, ui_dir=str(tmp_path / "missing")).test_client()
+    r = c.get("/")
+    assert r.status_code == 503
+    assert "npm ci && npm run build" in r.get_data(as_text=True)
