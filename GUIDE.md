@@ -1,676 +1,731 @@
-# Complete Build & Run Guide
+# Drone Disaster Detection: Build & Run Guide, from Zero
 
-**Drone edge disaster detection: Jetson Nano + Lenovo USB webcam + u-blox NEO-M8N GPS + laptop ground station**
+This guide takes you from a box of parts to a working drone that spots **fire, smoke and people** and shows them live on a laptop, with **no internet**.
 
-Follow this guide top to bottom, the first time and whenever you rebuild. Each step says **what to do**, **the command**, and **what you should see**. Don't move on until you see it. Tick the boxes as you go.
+**How to use it**
+- Do the steps **in order**. Every step has the same parts:
+  - **Do** what to do
+  - **Run** the command
+  - **✅ Check** what you should see
+- Don't move on until the ✅ matches. If it doesn't, the [Troubleshooting](#troubleshooting) table at the end has the fix.
+- Commands marked **(laptop)** run on your laptop. Commands marked **(Nano)** run on the Jetson, usually over SSH.
 
-> Other docs: [JETSON.md](JETSON.md) (Jetson reference) · [PROJECT_STATUS.md](PROJECT_STATUS.md) (what changed and what's open) · [README.md](README.md) (overview)
-> Branch: everything is on **`temp-jetson-fixes`**. Never commit directly to `main`.
-
----
-
-## Contents
-
-0. [How the whole system fits together](#0-how-the-whole-system-fits-together)
-1. [What you need](#1-what-you-need)
-2. [Laptop setup (and see the dashboard working in 10 minutes)](#2-laptop-setup)
-3. [Prepare the Jetson Nano (flash, boot, network)](#3-prepare-the-jetson-nano)
-4. [Software setup on the Nano](#4-software-setup-on-the-nano)
-5. [Connect and test the hardware, one part at a time](#5-connect-and-test-the-hardware)
-6. [Bring up the detection models on the Nano](#6-bring-up-the-detection-models)
-7. [Field network: the Nano's own Wi-Fi hotspot](#7-field-network)
-8. [The first full live run](#8-the-first-full-live-run)
-9. [Make it start by itself at boot](#9-start-at-boot)
-10. [Mission day checklist](#10-mission-day-checklist)
-11. [After the mission: exports and report](#11-after-the-mission)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Coding guide: where to change what](#13-coding-guide)
-14. [Reference: commands, settings, ports, files](#14-reference)
+> **Branch:** everything is on **`temp-jetson-fixes`**. Never commit to `main`.
+> Other docs: [JETSON.md](JETSON.md) (Jetson reference), [PROJECT_STATUS.md](PROJECT_STATUS.md) (what changed and what's open).
 
 ---
 
-## 0. How the whole system fits together
+## Overview: the steps
+
+| Part | Steps | You end with |
+|---|---|---|
+| A. Understand & check your parts | 1–3 | everything on the table, missing items ordered |
+| B. Laptop & dashboard | 4–10 | the dashboard running with a simulated drone |
+| C. Jetson Nano: power, flash, boot | 11–16 | the Nano booted, reachable over SSH |
+| D. Nano software | 17–19 | Docker image built, models copied |
+| E. Connect the parts, one at a time | 20–26 | webcam, GPS and power sensor all tested |
+| F. Detection models on the Nano | 27–30 | models run on the GPU (TensorRT) |
+| G. Field Wi-Fi | 31–34 | the laptop talks to the Nano with no router |
+| H. First full live run | 35–39 | real alerts on the laptop map |
+| I. Start at boot & mount on the drone | 40–44 | a flight-ready drone |
+| J. Mission day & afterwards | 45–47 | a mission flown, reviewed, exported |
+
+---
+
+# Part A: Understand and check your parts
+
+### Step 1: See how it all fits together
 
 ```
- ON THE DRONE ─────────────────────────────────────────────────────────────
-  Lenovo USB webcam ──USB──┐
-                           ▼
-  NEO-M8N GPS ──UART──► JETSON NANO (Docker container, run_pipeline.py)
-                          1. take a frame every 0.5 s
-                          2. Stage 1: cheap check (fire colours / real movement)
-                          3. Stage 2: YOLO (person, fire, smoke), only when Stage 1 fires
-                          4. tag with GPS, save alert + snapshot (SQLite on the Nano)
-                          5. link.py sends everything to the laptop:
-                               status every 1 s · camera preview every 1.5 s · alerts every 2 s
-                          │
-                          │  Wi-Fi hotspot "DRONE-EDGE" (the Nano is 10.42.0.1)
-                          ▼
- ON THE GROUND ────────────────────────────────────────────────────────────
-  LAPTOP: python ground_station/app.py
-     - announces itself on the Wi-Fi every 2 s, so the drone finds it (no IP typing)
-     - stores everything (SQLite), serves the dashboard at http://localhost:5000
-     - dashboard: live map + flight trail, camera preview, drone health,
-       alerts with Acknowledge/Resolve, sounds, exports (CSV/GeoJSON/KML/report)
+ ON THE DRONE ──────────────────────────────────────────────────────────────────────
+   Lenovo USB webcam ──USB──────────┐
+                                     ▼
+   NEO-M8N GPS puck ──4 wires──► JETSON NANO B01  (white case, fan, Wi-Fi antenna)
+                                  │  every 0.5 s: take a picture
+                                  │  Stage 1: cheap check (fire colours / real movement)
+                                  │  Stage 2: YOLO AI (person / fire / smoke), only when Stage 1 fires
+                                  │  tag with GPS, save alert + photo (kept until delivered)
+   5 V 4 A power ──barrel jack──►│
+                                  ▼  own Wi-Fi network "DRONE-EDGE"
+ ON THE GROUND ─────────────────────────────────────────────────────────────────────
+   LAPTOP: python ground_station/app.py   →  http://localhost:5000
+     Live      live map (2D/3D), drone position and heading, camera picture, drone health,
+               alerts with sound, Acknowledge / Resolve
+     Replay    replay the whole flight on a timeline
+     Analytics charts: detections, power, temperatures, compute saved
+     Missions  every flight, with reports and exports (CSV, Google Earth KML, PDF)
 ```
 
-**Key ideas**
-- **Adaptive compute:** the heavy YOLO models only run when the cheap Stage 1 sees something. This saves power and heat.
-- **Nothing gets lost:** if the Wi-Fi drops, alerts wait on the drone and are sent when it's back.
-- **No internet needed:** maps are cached on the laptop, and the dashboard has no online dependencies.
+**Three ideas to remember**
+- **Saves power:** the heavy AI only runs when the cheap check sees something.
+- **Never loses alerts:** if Wi-Fi drops, alerts wait on the drone and are sent when it's back.
+- **No internet needed:** maps are saved on the laptop beforehand, and the drone finds the laptop by itself.
+
+### Step 2: Check the parts you have
+
+**Do:** lay everything out and tick it off.
+
+| ✔ | Part (what you have) | Notes |
+|---|---|---|
+| ☐ | **Jetson Nano Developer Kit B01** in the white case, with a black **40 mm fan** (red/black wires go to the pin header) and a **Wi-Fi antenna** (gold screw connector) | the "brain" |
+| ☐ | **Lenovo USB webcam** (silver, with a privacy slider next to the lens) | the eye |
+| ☐ | **NEO-M8N "GPS module with compass"** (round black puck) | position |
+| ☐ | **GPS cables:** a **6-pin** plug (GPS) and a **4-pin** plug (compass) | we use only 4 GPS wires: VCC, GND, TX, RX |
+| ☐ | **Black mains lead with a 2-pin plug** | this goes into a power brick; it is not the Nano's power by itself |
+
+### Step 3: Get the missing pieces
+
+| ✔ | Buy or borrow | Why |
+|---|---|---|
+| ☐ | **5 V ⎓ 4 A power supply**, barrel plug **5.5 × 2.1 mm**, centre positive | Nano power. ⚠️ **The label must say 5 V.** 12 V destroys the board. |
+| ☐ | **Jumper cap** (2-pin, 2.54 mm) for **J48** | without it the barrel jack doesn't power the Nano |
+| ☐ | **microSD card, 64 GB** (32 GB minimum), A1/U3 | holds the Nano's operating system |
+| ☐ | **4 female-female jumper wires** *or* a **3.3 V USB-serial adapter** (CP2102 / FTDI / CH340) | to connect the GPS. The adapter is easier and safer. |
+| ☐ | **Multimeter** | to identify the GPS wires safely |
+| ☐ | For setup only: HDMI monitor, USB keyboard and mouse, **Ethernet cable** | after setup the Nano runs headless |
+| ☐ | For flying: a **5 V ≥ 4 A UBEC/BEC** (a voltage regulator) from the drone battery, plus a barrel plug | see Step 43 |
+| ☐ | A laptop with Wi-Fi (macOS, Windows or Linux) | the ground station |
 
 ---
 
-## 1. What you need
+# Part B: Laptop and dashboard (no Nano needed yet)
 
-### Hardware checklist
+### Step 4: Install the basics (laptop)
 
-| ✔ | Item | Notes |
-|---|---|---|
-| ☐ | Jetson Nano Developer Kit **B01** (4 GB) | ours: in the white printed case with fan and Wi-Fi antenna |
-| ☐ | **5 V ⎓ 4 A power supply**, barrel plug 5.5 × 2.1 mm, centre positive | the mains lead in our box feeds this. **Check the label says 5 V.** 12 V will destroy the board. |
-| ☐ | **Jumper cap** for J48 (next to the barrel jack) | without it the barrel jack doesn't power the board |
-| ☐ | microSD card **64 GB** (32 GB minimum), UHS-I | for JetPack |
-| ☐ | Lenovo USB webcam | open its privacy shutter |
-| ☐ | u-blox **NEO-M8N** GPS puck (with compass) and its cable | we use only the GPS wires: VCC, GND, TX, RX |
-| ☐ | **4 female-female jumper wires** *or* a **3.3 V USB-serial adapter** (CP2102/FTDI/CH340) | to connect the GPS (see §5.2) |
-| ☐ | Multimeter | to identify the GPS wires safely |
-| ☐ | For first setup only: HDMI or DP monitor, USB keyboard and mouse, Ethernet cable | after setup everything runs headless |
-| ☐ | Laptop (macOS, Windows or Linux) with Wi-Fi | the ground station |
+**Do:** install **Python 3.9+** (python.org), **Git** (git-scm.com) and **balenaEtcher** (balena.io/etcher).
 
-### Software checklist (laptop)
+**✅ Check:**
+```bash
+python3 --version
+```
+```bash
+git --version
+```
+The first shows Python 3.9 or newer.
 
-| ✔ | Item | How |
-|---|---|---|
-| ☐ | Python **3.9+** | python.org, or Homebrew on Mac |
-| ☐ | Git | git-scm.com |
-| ☐ | balenaEtcher (or Raspberry Pi Imager) | to flash the SD card |
-| ☐ | Access to the GitHub repo | `https://github.com/Hisana-07/Edge_Disasted_Detection_Project` |
+### Step 5: Get the code (laptop)
 
----
-
-## 2. Laptop setup
-
-### 2.1 Get the code
-
-- [ ] Clone the repo and switch to the working branch:
-
+**Run:**
 ```bash
 git clone https://github.com/Hisana-07/Edge_Disasted_Detection_Project.git
 cd Edge_Disasted_Detection_Project
 git checkout temp-jetson-fixes
 ```
+**✅ Check:** `git branch --show-current` prints `temp-jetson-fixes`.
 
-### 2.2 Python environment
+### Step 6: Python environment (laptop)
 
-- [ ] Create a virtual environment and install the dependencies.
-
-macOS / Linux:
+**Run (macOS / Linux):**
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt pytest
 ```
-
-Windows (PowerShell):
+**Run (Windows PowerShell):**
 ```powershell
 python -m venv venv
 venv\Scripts\Activate.ps1
 pip install -r requirements.txt pytest
 ```
+**✅ Check:** the prompt starts with `(venv)`.
 
-> If you only need the **ground station** (not detection on the laptop), this is enough: `pip install flask requests opencv-python numpy pytest`.
+> Every new terminal needs the `activate` line again.
 
-### 2.3 Run the tests
+### Step 7: Run the tests (laptop)
 
-- [ ] Run:
-
+**Run:**
 ```bash
 python -m pytest
 ```
+**✅ Check:** about `110 passed` at the end. No models or hardware are needed for this.
 
-**You should see:** `80 passed` (or more). No models or videos are needed for this.
+### Step 8: Start the ground station and a simulated drone (laptop)
 
-### 2.4 See the full system work, without the Nano (10 minutes)
+**Terminal 1, run:**
+```bash
+python ground_station/app.py
+```
+**✅ Check:**
+```
+Ground station on http://localhost:5000  (host <your-laptop>, 0.0.0.0)
+Beacon: UDP 5005 -> 255.255.255.255, 10.42.0.255
+```
 
-This uses the **simulated drone**. It runs the real drone code; only the camera, YOLO and sensors are simulated.
+**Terminal 2** (activate the venv first), **run:**
+```bash
+python ground_station/demo_drone.py --station http://localhost:5000
+```
+**✅ Check:** `demo drone 'demo-drone': station=http://localhost:5000 …`. After about 30 s it prints `ALERT #1 fire …`.
 
-- [ ] **Terminal 1**, start the ground station:
-  ```bash
-  python ground_station/app.py
-  ```
-  **You should see:**
-  ```
-  Ground station on http://localhost:5000  (host <your-laptop>, 0.0.0.0)
-  Beacon: UDP 5005 -> 255.255.255.255, 10.42.0.255
-  ```
-- [ ] **Terminal 2**, start the demo drone:
-  ```bash
-  python ground_station/demo_drone.py --station http://localhost:5000
-  ```
-  (`--station auto` also works when the laptop's broadcast reaches itself. The explicit URL always works.)
-- [ ] Open **http://localhost:5000** in a browser.
+> The demo runs the **real drone code**; only the camera, AI and sensors are simulated. Use it any time you want to demo the system without the Nano.
 
-**You should see, within a few seconds:**
-- **LIVE · demo-drone** (green) in the top bar, plus `SIM GPS`
-- the drone arrow gliding over the map, with a gradient trail behind it
-- the camera card and flight readout on the left: compass, power gauge, temperatures, 60 s sparklines
-- after about 30 s a fire appears: the **YOLO ACTIVE** badge lights up, and alerts pop up with a sound (a red banner for people)
-- the alert drawer on the right: open an alert for its snapshot, then **Acknowledge / Resolve / Reopen** and add a note
+### Step 9: Tour the dashboard (laptop)
 
-Then try the rest of the dashboard:
-- [ ] Press **3** (or the 2D/3D button) to tilt the map. With terrain tiles cached, you get real 3D relief.
-- [ ] Press **⌘K / Ctrl+K** for the command palette, and **?** for all keyboard shortcuts.
-- [ ] Open **Replay** (left rail): scrub the timeline, or play it at 1× / 4× / 16×. Alerts appear when they happened.
-- [ ] Open **Analytics**: headline numbers (including **compute saved by gating**), detections per minute, power, temperatures, frame rate, pipeline state.
-- [ ] Open **Missions**: every mission, with Replay, Analytics, Report and CSV/GeoJSON/KML.
-- [ ] Use the sun/moon button for the light/dark theme. The layout also works on a phone (bottom tabs).
-- [ ] Click the 🔔 button once (browsers need one click before they allow sound).
-- [ ] Stop the demo drone (Ctrl+C). Within 3–4 s the top bar turns red: **LINK LOST**.
+**Do:** open **http://localhost:5000** in Chrome, Edge or Firefox. Click the 🔔 bell once (browsers only allow sound after one click).
 
-If all of that works, your laptop side is ready.
+**✅ Check, in the Live view (default):**
+- [ ] The top bar shows **LIVE · demo-drone** in green, `SIM GPS`, the mission timer, and alert counters (person / fire / smoke).
+- [ ] On the **map**, the drone arrow glides along a blue gradient trail.
+- [ ] **Left:** a **Camera** card with the live picture, and a **Flight** panel (compass, speed, power gauge, CPU/GPU temperature, frame-rate and power sparklines).
+- [ ] After about 30 s the fire appears: the camera shows **YOLO ACTIVE**, a pop-up and beep arrive, and **person** alerts bring up a **red banner**.
+- [ ] **Right:** the **Alerts** drawer. Click an alert to see its photo, then **Acknowledge**, **Resolve** and **Reopen**, and add a **note**.
+- [ ] Map buttons (right edge): **2D/3D** (or press `3`), follow-drone, heading-up, fit-all, and layers.
 
-### 2.5 Get the models and test video
+**✅ Check the other views** (left rail; bottom tabs on a phone):
+- [ ] **Replay:** press ▶ and switch between 1× / 4× / 16×. Coloured ticks on the timeline are alerts; click one to jump to it.
+- [ ] **Analytics:** headline numbers (alerts, duration, distance, **compute saved**, power, peak temperatures) and charts. The **Table** tab shows the raw data.
+- [ ] **Missions:** every mission with Replay / Analytics / **Report** (print → save as PDF) / CSV / GeoJSON / KML.
+- [ ] Press **⌘K** (Mac) or **Ctrl+K** (Windows) for the command palette, and **?** for all shortcuts. The ☀/☾ button switches light/dark.
+- [ ] Stop the demo drone (Ctrl+C in terminal 2). **✅** Within about 3 s the top bar turns red: **LINK LOST · N s**.
 
-The models are not in git (size and licence). Put them in `weights/`:
+🎉 The ground station works. Keep terminal 1 open for the next step.
 
-- [ ] **Person model (YOLOv8n):**
-  ```bash
-  python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
-  ```
-  Then move the downloaded `yolov8n.pt` into `weights/yolov8n.pt` (`mv yolov8n.pt weights/` on Mac/Linux; drag it on Windows).
-- [ ] **Fire/smoke model:** from the Hugging Face model page `seawsurf/fire_yolo`, open the *Files* tab, download **`best.pt`**, and save it as `weights/fire_smoke.pt`.
-- [ ] **Test video:** any calm aerial clip, saved as `data/calm.mp4`, plus any aerial fire clip, saved as `data/test_video.mp4`. Then build the combined test video:
-  ```bash
-  python make_mixed_video.py data/calm.mp4 data/test_video.mp4 data/mixed_test.mp4
-  ```
-  **You should see:** `calm: 30.0s | fire: …s`, plus the files `data/mixed_test.mp4` and `data/mixed_test_labels.json`.
-- [ ] Optional check on the laptop:
-  ```bash
-  python check_fire_model.py data/mixed_test.mp4
-  ```
-  **You should see:** `classes: {0: 'fire', 1: 'smoke'}` and detections on the fire part.
+### Step 10: Get the AI models, test video and offline map (laptop, needs internet)
 
-### 2.6 Cache the map for the flight area (needs internet)
+**Do 1: the person model.**
+```bash
+python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+```
+Then move the downloaded `yolov8n.pt` into `weights/` (Mac/Linux: `mv yolov8n.pt weights/`).
 
-The field has no internet, so save the map tiles now.
+**Do 2: the fire/smoke model.** On Hugging Face, open the model page **`seawsurf/fire_yolo`**, go to *Files*, download **`best.pt`**, and save it as **`weights/fire_smoke.pt`**.
 
-- [ ] **Easy way:** with the station running, open the dashboard and pan/zoom over your flight area once. Every tile you see is saved.
-- [ ] **Explicit way:** download a box of tiles. Get the corner coordinates from Google Maps (right-click → copy coordinates):
-  ```bash
-  python ground_station/tiles.py prefetch --bbox 12.965,77.585,12.978,77.598 --zoom 14-18
-  ```
-  It refuses areas over 3000 tiles. Keep the box tight to your flight area.
+**Do 3: the test video.** Save any calm aerial clip as `data/calm.mp4` and any aerial fire clip as `data/test_video.mp4`. Then:
+```bash
+python make_mixed_video.py data/calm.mp4 data/test_video.mp4 data/mixed_test.mp4
+```
+**✅ Check:** `data/mixed_test.mp4` and `data/mixed_test_labels.json` exist.
+
+**Do 4 (optional): check the fire model on the laptop.**
+```bash
+python check_fire_model.py data/mixed_test.mp4
+```
+**✅ Check:** `classes: {0: 'fire', 1: 'smoke'}`, plus detection lines.
+
+**Do 5: save the map of your flight area for offline use.** Find the area's corners in Google Maps (right-click → copy coordinates). **Run** (keep the box tight):
+```bash
+python ground_station/tiles.py prefetch --bbox 12.965,77.585,12.978,77.598 --zoom 14-18 --terrain
+```
+**✅ Check:** `… tiles in area (map + terrain) …`, then `downloaded N tiles`. It refuses more than 3000 tiles; shrink the box if it does. The easy alternative: with the station running, pan and zoom the dashboard map over the area (all tiles you see are saved), and press `3` to save the 3D terrain too.
 
 ---
 
-## 3. Prepare the Jetson Nano
+# Part C: Jetson Nano: power, flash, first boot
 
-### 3.1 Flash JetPack 4.6
+### Step 11: Flash the microSD card (laptop)
 
-- [ ] On the laptop, download the **Jetson Nano Developer Kit SD Card Image, JetPack 4.6.x**, from NVIDIA's Jetson downloads page (JetPack archive).
-- [ ] Flash it to the microSD card with **balenaEtcher**. Select the downloaded `.zip` → the SD card → Flash.
-- [ ] Insert the card into the slot **under the heatsink module**, on the back edge of the Nano.
+**Do:**
+1. On NVIDIA's Jetson download page (JetPack archive), download the **Jetson Nano Developer Kit SD Card Image, JetPack 4.6.x**.
+2. Open **balenaEtcher**, then **Flash from file** (the downloaded `.zip`), **Select target** (your microSD) and **Flash**.
 
-### 3.2 Power: get this right first
+**✅ Check:** Etcher says *Flash Complete*.
 
-- [ ] Fit the **jumper on J48**, the 2-pin header next to the barrel jack. This switches power input from micro-USB to the barrel jack.
-- [ ] Check the power brick label: **5 V, at least 4 A**.
-- [ ] The fan in our case is wired to the 40-pin header (5 V/GND). Note which pins it uses; you need free pins for the GPS in §5.2.
+### Step 12: Insert the card
 
-### 3.3 First boot (monitor, keyboard and Ethernet attached)
+**Do:** the microSD slot is **under the black heatsink module**, at the back edge of the board. Push the card in, contacts up, until it clicks.
 
-- [ ] Connect the HDMI monitor, keyboard, mouse and **Ethernet** (it needs internet for setup). Then plug in the 5 V barrel jack.
-- [ ] Complete the Ubuntu setup wizard: language, user name, password, timezone. Choose **MAXN** if it asks about the power mode.
-- [ ] Note your username. This guide writes it as `<user>`.
+### Step 13: Set up power safely
 
-### 3.4 Network and SSH
+**Do:**
+1. Put the **jumper cap on J48**, the 2-pin header right next to the barrel jack.
+2. Check the brick's label says **5 V and 4 A or more**. Plug the black mains lead into the brick, not into the Nano.
+3. Look at the **fan's red/black wires** on the 40-pin header and note which pins they use (usually a 5 V pin and a GND pin). You need other free pins for the GPS in Step 23.
 
-- [ ] On the Nano, find its IP address:
-  ```bash
-  hostname -I
-  ```
-- [ ] From the laptop (same network), check you can SSH in:
-  ```bash
-  ssh <user>@<nano-ip>
-  ```
-  From now on you can run everything from the laptop over SSH, and the monitor and keyboard can go.
+> ⚠️ Micro-USB power (5 V 2 A) can boot the Nano, but it **resets when the AI runs**. Always use the barrel jack and J48 jumper.
 
-> **Important ordering:** do all of §4 (it downloads several GB) **while the Nano has internet** over Ethernet or home Wi-Fi. Turn on the field hotspot (§7) only after that, because the hotspot takes over the Wi-Fi card.
+### Step 14: First boot (monitor, keyboard, Ethernet attached)
+
+**Do:** connect HDMI, keyboard, mouse and **Ethernet** (it needs internet for setup), then plug in the barrel jack.
+
+**✅ Check:**
+- the green LED near the micro-USB port lights up
+- the fan spins
+- the Ubuntu setup wizard appears
+
+### Step 15: Complete the setup wizard
+
+**Do:** accept the licence, choose language, keyboard and timezone, then create your **user name and password** (written as `<user>` below). If it asks about the power mode, pick **MAXN**.
+
+**✅ Check:** you reach the Ubuntu desktop.
+
+### Step 16: Connect from the laptop over SSH
+
+**Run (Nano, in a terminal on its desktop):**
+```bash
+hostname -I
+```
+Note the first address (e.g. `192.168.1.57`). That's `<nano-ip>`.
+
+**Run (laptop):**
+```bash
+ssh <user>@<nano-ip>
+```
+**✅ Check:** you get a prompt like `<user>@<nano-name>:~$`. From now on, run the Nano commands over this SSH session. The monitor and keyboard can be unplugged.
+
+> ⚠️ **Do Parts D and F while the Nano has internet** (Ethernet). The field hotspot in Part G takes over the Wi-Fi card.
 
 ---
 
-## 4. Software setup on the Nano
+# Part D: Nano software
 
-All commands in this section run **on the Nano** (over SSH).
+### Step 17: Get the code (Nano)
 
-### 4.1 Get the code
-
-- [ ] Run:
-
+**Run:**
 ```bash
 git clone https://github.com/Hisana-07/Edge_Disasted_Detection_Project.git
 cd Edge_Disasted_Detection_Project
 git checkout temp-jetson-fixes
 ```
 
-### 4.2 One-time setup script
+### Step 18: One-time setup script (Nano)
 
-- [ ] Run:
-
+**Run:**
 ```bash
 jetson/setup_nano.sh
 ```
+It asks for your password. **It takes a while**, because it downloads several GB to build the Docker image.
 
-It asks for your password (sudo). **You should see** a list of `OK` / `WARN` lines:
+**✅ Check:** a list of `OK` / `WARN` lines.
 
-| Line | Meaning if it's WARN |
+| Line | What a WARN means |
 |---|---|
 | Board / model | not a Jetson, or not JetPack 4 |
 | Power mode | `nvpmodel` missing |
 | Docker + NVIDIA runtime | install `docker.io nvidia-container-runtime` |
-| Swap | it creates 4 GB of swap automatically (needed for TensorRT) |
-| Build edge-drone image | **this takes a while** (it downloads several GB) |
-| Files that are not in git | you still need to copy the models (next step) |
-| Camera | plug the webcam in (§5.1) |
-| Flight-controller UART | `nvgetty` still owns the UART (§5.2) |
+| Swap | (it creates 4 GB of swap itself) |
+| Build edge-drone image | re-run the script if the download failed |
+| Files not in git | expected now: you copy them in the next step |
+| Camera | expected now: the webcam comes in Step 21 |
+| Flight-controller UART | expected now: fixed in Step 24 |
 
-### 4.3 Copy models and test video from the laptop
+### Step 19: Copy the models and test video (laptop → Nano)
 
-- [ ] **On the laptop**, from the repo folder:
-
+**Run (laptop, in the repo folder):**
 ```bash
 scp weights/yolov8n.pt weights/fire_smoke.pt <user>@<nano-ip>:~/Edge_Disasted_Detection_Project/weights/
+```
+```bash
 scp data/mixed_test.mp4 data/mixed_test_labels.json <user>@<nano-ip>:~/Edge_Disasted_Detection_Project/data/
 ```
+**✅ Check (Nano):** `ls weights data` lists all four files.
 
-### 4.4 How you run things on the Nano
-
-Everything runs **inside Docker** through one helper script, from the repo folder:
-
-```bash
-jetson/run_docker.sh python3 <script>.py      # run a script in the container
-jetson/run_docker.sh                          # open a shell in the container
-```
-
-- Any `EDGE_*` or `GS_*` variable you put in front is passed into the container, e.g. `EDGE_DEVICE=0 jetson/run_docker.sh python3 benchmark.py`.
-- The webcam (`/dev/video*`) and the serial ports (`/dev/ttyTHS1`, `/dev/ttyUSB*`) are passed in automatically if they exist.
+> **How to run anything on the Nano:** use `jetson/run_docker.sh python3 <script>.py`. It runs inside the prepared Docker container and passes any `EDGE_…` settings you put in front of it. The webcam and serial ports are passed in automatically.
 
 ---
 
-## 5. Connect and test the hardware
+# Part E: Connect the parts, one at a time
 
-Connect **one part at a time** and test it before the next. **Always power off the Nano before wiring the 40-pin header:** `sudo poweroff`, then unplug the power.
+> ⚠️ **Before touching the 40-pin header:** run `sudo poweroff`, wait for the LED to go off, then **unplug the power**.
 
-### 5.1 Lenovo USB webcam
+### Step 20: Power and fan check (Nano)
 
-- [ ] Plug it into any blue USB 3.0 port. **Slide the privacy shutter open.**
-- [ ] Check Linux sees it (on the Nano):
-  ```bash
-  ls /dev/video*
-  ```
-  **You should see:** `/dev/video0`
-- [ ] Optional, see which modes it supports:
-  ```bash
-  sudo apt install -y v4l-utils && v4l2-ctl --list-formats-ext -d /dev/video0
-  ```
-  Look for **MJPG 1280x720**. That's what `config.py` asks for.
-- [ ] Grab a test frame inside the container:
-  ```bash
-  jetson/run_docker.sh python3 -c "import cv2; c=cv2.VideoCapture(0); c.read(); ok,f=c.read(); print(ok, f.shape); cv2.imwrite('data/cam_test.jpg', f)"
-  ```
-  **You should see:** `True (720, 1280, 3)` or similar. Copy `data/cam_test.jpg` to the laptop and check it's not black.
+**Run:**
+```bash
+jetson/run_docker.sh python3 power_monitor.py
+```
+**✅ Check:** `power source: sysfs:POM_5V_IN` and `idle: ~1500–2500 mW`. The fan should be spinning.
 
-### 5.2 NEO-M8N GPS
+### Step 21: Connect the Lenovo webcam
 
-**Step 1: identify the wires (safety first).** The GPS cable's colours and order **differ between sellers**. Look for labels on the GPS module's PCB (VCC, GND, TX, RX). If there are none, use the multimeter with the GPS powered from a 5 V source: GND–VCC reads about 5 V, and the TX line idles at about 3.3 V. **Don't guess:** 5 V on a Nano data pin will damage it.
+**Do:** plug it into any **blue USB 3.0 port**, and **slide the privacy shutter open**.
 
-**Step 2: choose a connection.**
+**Run (Nano):**
+```bash
+ls /dev/video*
+```
+**✅ Check:** `/dev/video0`.
 
-**Option A: USB-serial adapter (easiest and safest).** Set the adapter's jumper to 3.3 V if it has one.
+### Step 22: Take a test picture (Nano)
 
-| GPS wire | Adapter pin |
+**Run:**
+```bash
+jetson/run_docker.sh python3 -c "import cv2; c=cv2.VideoCapture(0); c.read(); ok,f=c.read(); print(ok, f.shape); cv2.imwrite('data/cam_test.jpg', f)"
+```
+**✅ Check:** `True (720, 1280, 3)` (or similar). Copy it to the laptop with `scp <user>@<nano-ip>:~/Edge_Disasted_Detection_Project/data/cam_test.jpg .` and open it. It should not be black.
+
+### Step 23: Identify the GPS wires (safety first)
+
+**Do:**
+1. Look at the **6-pin GPS plug** on the M8N puck. Many modules print **VCC / GND / TX / RX** (sometimes SDA / SCL too) on the PCB or the cable. **The colours and order differ between sellers, so never guess.**
+2. Without labels, use the multimeter. Power the puck from 5 V: **GND–VCC ≈ 5 V**, and **TX ≈ 3.3 V** at idle (measured against GND).
+3. Ignore the **4-pin compass plug** completely.
+
+### Step 24: Wire the GPS (pick one option)
+
+**Option A (recommended): USB-serial adapter.** Set the adapter's jumper to 3.3 V if it has one.
+
+| GPS wire | → Adapter pin |
 |---|---|
 | VCC | 5V |
 | GND | GND |
 | TX | **RX** |
 | RX | **TX** |
 
-Plug the adapter into the Nano. It appears as `/dev/ttyUSB0`, so use `EDGE_GPS_PORT=/dev/ttyUSB0` everywhere below.
+Plug the adapter into a Nano USB port. It becomes **`/dev/ttyUSB0`**.
 
-**Option B: directly on the Nano's 40-pin header (`/dev/ttyTHS1`).**
+**Option B: the Nano's 40-pin header (UART, `/dev/ttyTHS1`).**
 
 ```
-   Nano 40-pin header, J41 (pin numbers are printed on the board)
-        3V3  (1) (2)  5V    ◄── GPS VCC     (or pin 4 if pin 2 is used by the fan)
+   Nano 40-pin header J41 (pin numbers are printed on the board)
+        3V3  (1) (2)  5V   ◄── GPS VCC     (or pin 4 if the fan uses pin 2)
              (3) (4)  5V
-             (5) (6)  GND   ◄── GPS GND     (or pin 9 / 14 if pin 6 is used by the fan)
-             (7) (8)  UART TX ──► GPS RX
-        GND  (9) (10) UART RX ◄── GPS TX
+             (5) (6)  GND  ◄── GPS GND     (or pin 9 / 14 if the fan uses pin 6)
+             (7) (8)  TX  ──► GPS RX
+        GND  (9) (10) RX  ◄── GPS TX
 ```
 
-| GPS wire | Nano pin |
-|---|---|
-| VCC | **2** (5 V); or 4 if the fan uses 2 |
-| GND | **6**; or 9 or 14 if the fan uses 6 |
-| TX | **10** (UART RX) |
-| RX | **8** (UART TX) |
+TX always goes to RX (crossed over). ⚠️ The Nano's pins 8 and 10 take **3.3 V only**.
 
-> TX always goes to RX, crossed over. The Nano's UART pins are **3.3 V only**. The compass's 4-pin plug stays unconnected.
-
-**Step 3: free the UART (Option B only, once).**
-
-- [ ] Run:
-
+Then free the UART from the Linux console (once):
 ```bash
 sudo systemctl disable --now nvgetty
-sudo usermod -aG dialout $USER        # then log out and back in
+sudo usermod -aG dialout $USER
 ```
+Log out and SSH back in.
 
-**Step 4: test it outdoors, or at a window with open sky.**
+### Step 25: Test the GPS outdoors (Nano)
 
-- [ ] Run:
+**Do:** go outside, or put the puck at a window with open sky. The first fix can take **30 s to 3 minutes**.
 
+**Run** (use `/dev/ttyUSB0` for Option A):
 ```bash
 EDGE_GPS=nmea EDGE_GPS_PORT=/dev/ttyTHS1 jetson/run_docker.sh python3 gps_source.py
 ```
-
-(Use `/dev/ttyUSB0` for Option A.)
-
-**You should see:**
+**✅ Check:**
 ```
 [gps] nmea /dev/ttyTHS1 @ 9600 baud (fix comes later if the sky view is poor)
-Ctrl+C to stop
 no fix  sats=3 hdop=None sentences=12
 ...
 12.97xxxx, 77.59xxxx  sats=9 hdop=0.9 sentences=240
 ```
 
-- The first fix takes 30 s to a few minutes from cold. The module's LED usually starts blinking once it has a fix.
-- `no NMEA data ...` means the wiring is wrong (TX/RX swapped), it has no power, or `nvgetty` is still on.
-- `sentences` going up but `no fix` means the wiring is fine; it just needs a clearer view of the sky.
+**If it isn't working:**
+- `no NMEA data` → TX/RX not crossed, no power, or `nvgetty` still on.
+- `sentences` rising but `no fix` → the wiring is fine; it needs a better view of the sky.
 
-### 5.3 Power sensor
+### Step 26: Checkpoint
 
-- [ ] Run:
-
-```bash
-jetson/run_docker.sh python3 power_monitor.py
-```
-
-**You should see:** `power source: sysfs:POM_5V_IN` and `idle: ~1500–2500 mW`.
+**✅ Check:** the power sensor works, the webcam takes pictures, and the GPS gets a fix. Power off, tidy the cables, and power on again.
 
 ---
 
-## 6. Bring up the detection models
+# Part F: Detection models on the Nano (still with internet)
 
-Run these in order on the Nano. Use full performance mode first: `sudo nvpmodel -m 0 && sudo jetson_clocks`.
+### Step 27: Maximum performance (Nano)
 
-| # | ✔ | Command | You should see |
-|---|---|---|---|
-| 1 | ☐ | `EDGE_DEVICE=0 jetson/run_docker.sh python3 check_fire_model.py data/mixed_test.mp4` | `classes: {0: 'fire', 1: 'smoke'}`, then detection lines |
-| 2 | ☐ | `EDGE_DEVICE=0 jetson/run_docker.sh python3 benchmark.py --tag nano_pytorch` | a results table, `saved data/benchmark_nano_pytorch.json`, energy numbers |
-| 3 | ☐ | `jetson/run_docker.sh python3 export_trt.py` | `wrote weights/yolov8n.engine` and `weights/fire_smoke.engine` (several minutes each) |
-| 4 | ☐ | `EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine jetson/run_docker.sh python3 benchmark.py --tag nano_trt` | `data/benchmark_nano_trt.json`, with Stage 2 much faster than in #2 |
+**Run:**
+```bash
+sudo nvpmodel -m 0 && sudo jetson_clocks
+```
 
-**If step 1 fails** with an unknown module or layer error, the container's Ultralytics is too old for the YOLO26 fire model. Rebuild the image with a newer one:
+### Step 28: Check the models load on the GPU (Nano)
+
+**Run:**
+```bash
+EDGE_DEVICE=0 jetson/run_docker.sh python3 check_fire_model.py data/mixed_test.mp4
+```
+**✅ Check:** `classes: {0: 'fire', 1: 'smoke'}`, plus detection lines.
+
+**If it fails with "unknown module/layer"**, the container's AI library is too old for this fire model. Run:
 ```bash
 sudo docker build --build-arg UPGRADE_ULTRALYTICS=1 -t edge-drone jetson/
 ```
-If it still fails, export to ONNX **on the laptop** (`python export_onnx.py`), copy `weights/fire_smoke.onnx` to the Nano, and use `EDGE_FIRE_WEIGHTS=weights/fire_smoke.onnx`.
+Then retry. If it still fails: on the **laptop**, run `python export_onnx.py`, copy `weights/fire_smoke.onnx` to the Nano, and add `EDGE_FIRE_WEIGHTS=weights/fire_smoke.onnx` to the commands.
 
-Keep both benchmark JSON files: they're the main results of the project, comparing PyTorch and TensorRT on time and energy.
+### Step 29: Benchmark (Nano)
 
----
-
-## 7. Field network
-
-In the field there's no router: the Nano creates its own Wi-Fi network.
-
-- [ ] **Finish §4 and §6 first** (they need internet).
-- [ ] On the Nano:
-  ```bash
-  sudo jetson/hotspot.sh
-  ```
-  **You should see:**
-  ```
-  hotspot up: SSID 'DRONE-EDGE' on wlan0, Nano at 10.42.0.1, starts at boot
-  password (shown once, write it down): XXXXXXXXXXXX
-  ```
-  To choose your own password: `sudo jetson/hotspot.sh --password 'something-long'`.
-- [ ] **Write the password down.** The hotspot now comes up at every boot.
-- [ ] On the laptop, join the Wi-Fi network **DRONE-EDGE**.
-- [ ] Check you can reach the Nano: `ssh <user>@10.42.0.1`
-- [ ] **Allow the station through the laptop firewall** (once):
-  - **macOS:** the first time you run `python ground_station/app.py`, click **Allow** on "accept incoming network connections". Or go to System Settings → Network → Firewall → Options → allow Python.
-  - **Windows:** on the Defender prompt, tick **Private networks** → Allow. When Windows asks, choose "Private" for the DRONE-EDGE network.
-- [ ] To get normal Wi-Fi back on the Nano later: `sudo jetson/hotspot.sh --off`.
-
-> If `hotspot.sh` says the Wi-Fi card has no AP mode, use a phone hotspot that both the Nano and the laptop join. Discovery works the same way.
-
----
-
-## 8. The first full live run
-
-### 8.1 Start the ground station (laptop, joined to DRONE-EDGE)
-
-- [ ] Run:
-
+**Run:**
 ```bash
-source venv/bin/activate           # Windows: venv\Scripts\Activate.ps1
+EDGE_DEVICE=0 jetson/run_docker.sh python3 benchmark.py --tag nano_pytorch
+```
+**✅ Check:** a results table and `saved data/benchmark_nano_pytorch.json`, including energy numbers. This is your project's main result: keep it.
+
+### Step 30: Make the AI fast with TensorRT (Nano)
+
+**Run (it takes several minutes per model):**
+```bash
+jetson/run_docker.sh python3 export_trt.py
+```
+```bash
+EDGE_DEVICE=0 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine jetson/run_docker.sh python3 benchmark.py --tag nano_trt
+```
+**✅ Check:** `weights/*.engine` files exist, and `benchmark_nano_trt.json` shows a much faster Stage 2 than Step 29.
+
+---
+
+# Part G: Field Wi-Fi (no router, no internet)
+
+### Step 31: Turn the Nano into a Wi-Fi hotspot (Nano)
+
+**Run:**
+```bash
+sudo jetson/hotspot.sh --password 'choose-a-long-password'
+```
+**✅ Check:** `hotspot up: SSID 'DRONE-EDGE' on wlan0, Nano at 10.42.0.1, starts at boot`. **Write the password down.**
+
+> If it says the card has **no AP mode**, use a phone hotspot that both devices join instead. Everything else works the same.
+
+### Step 32: Join from the laptop
+
+**Do:** connect the laptop's Wi-Fi to **DRONE-EDGE**.
+
+**Run (laptop):**
+```bash
+ssh <user>@10.42.0.1
+```
+**✅ Check:** you're on the Nano. From now on, the Nano is always **`10.42.0.1`**.
+
+### Step 33: Allow the station through the laptop firewall (once)
+
+**Do:**
+- **macOS:** the first time you start `python ground_station/app.py`, click **Allow** on "accept incoming network connections" (or System Settings → Network → Firewall → Options → allow Python).
+- **Windows:** on the Defender prompt, tick **Private networks**, then **Allow**. Set the DRONE-EDGE network to **Private**.
+
+### Step 34: Back to normal Wi-Fi later
+
+If you need home internet on the Nano again (for updates), **run** `sudo jetson/hotspot.sh --off`. Turn the hotspot back on with Step 31.
+
+---
+
+# Part H: First full live run
+
+### Step 35: Start the ground station (laptop, on DRONE-EDGE)
+
+**Run:**
+```bash
+source venv/bin/activate          # Windows: venv\Scripts\Activate.ps1
 python ground_station/app.py
 ```
+Then open **http://localhost:5000**. **✅ Check:** the top bar says **WAITING FOR DRONE**.
 
-Then open **http://localhost:5000**. The top bar says **WAITING FOR DRONE**.
+### Step 36: Start the pipeline (Nano, SSH to 10.42.0.1)
 
-### 8.2 Start the pipeline (Nano, over SSH to 10.42.0.1)
+Use `/dev/ttyUSB0` if you wired the GPS with the adapter.
 
-- [ ] Run:
-
+**Run:**
 ```bash
 cd ~/Edge_Disasted_Detection_Project
 EDGE_DEVICE=0 EDGE_SOURCE=0 EDGE_GPS=nmea EDGE_GPS_PORT=/dev/ttyTHS1 \
 EDGE_PERSON_WEIGHTS=weights/yolov8n.engine EDGE_FIRE_WEIGHTS=weights/fire_smoke.engine \
 jetson/run_docker.sh python3 run_pipeline.py
 ```
-
-**You should see on the Nano:**
+**✅ Check (Nano):**
 ```
-[gps] nmea /dev/ttyTHS1 @ 9600 baud ...
+[gps] nmea /dev/ttyTHS1 @ 9600 baud …
 [link] station: auto (waiting for the ground station beacon on UDP 5005)
 [camera] usb 1280x720 @ 30 fps
 [link] ground station found at http://10.42.0.xx:5000
 ```
+**✅ Check (dashboard), within about 2 s:**
+- **LIVE · `<nano name>`**
+- `FIX · N sats` (or `NO FIX` indoors)
+- the live camera picture
+- the Flight panel with real power and temperatures
 
-**You should see on the dashboard within about 2 s:**
+You never typed the laptop's IP: the station announced itself and the drone found it.
 
-| Element | Expected |
-|---|---|
-| Top bar | **LIVE · `<nano hostname>`** (green), GPS `FIX · N sats` (or `NO FIX` indoors) |
-| Live camera | the webcam image refreshing about every 1.5 s |
-| Status cards | pipeline SCANNING, frame rate ~2 fps, board power in W, CPU/GPU temperatures |
-| Map | drone arrow at your position (once GPS has a fix) |
+### Step 37: Indoor fire test
 
-### 8.3 Test detection indoors
+**Do:** play a fire video on a phone or monitor and point the webcam at it.
 
-- [ ] Play a fire video on a phone or monitor and point the webcam at it.
-- [ ] **You should see:** the pipeline goes to **ACTIVE**, the **YOLO ACTIVE** badge lights up, a **fire alert** pops up with a beep, and a card appears with a snapshot.
-- [ ] Indoors the alert says **no GPS fix**. That's expected; outdoors it has coordinates.
-- [ ] Click **Acknowledge**, then **Resolve**. The card and map marker update.
+**✅ Check:**
+- the Flight panel shows **ACTIVE** and the camera shows **YOLO ACTIVE**
+- a **fire alert** pops up with a beep
+- a card appears in the Alerts drawer with the photo
+- indoors it says **no GPS fix**; outdoors it has coordinates
 
-### 8.4 Test the link recovery
+Click **Acknowledge**, then **Resolve**.
 
-- [ ] Walk the laptop out of Wi-Fi range (or turn its Wi-Fi off for 20 s). The dashboard shows **LINK LOST**.
-- [ ] Trigger a detection meanwhile. The "Alerts waiting on drone" card counts up once you're back.
-- [ ] Reconnect. Within a few seconds the waiting alerts arrive. **Nothing is lost.**
+### Step 38: Link-loss test
 
-### 8.5 Stop
+**Do:** turn the laptop's Wi-Fi off for 20 s, or walk out of range.
 
-- [ ] Press Ctrl+C on the Nano. **You should see:** `[stop] stopping, flushing alerts`, then a summary table.
+**✅ Check:**
+- the dashboard shows **LINK LOST**
+- any detection made meanwhile shows up on the **Waiting** card in the Flight panel (alerts held on the drone)
+- after reconnecting, the waiting alerts arrive with their pop-ups. **Nothing is lost.**
+
+### Step 39: Stop cleanly
+
+**Do:** press **Ctrl+C** on the Nano.
+
+**✅ Check:** `[stop] stopping, flushing alerts`, then a summary table.
 
 ---
 
-## 9. Start at boot
+# Part I: Start at boot, and mount on the drone
 
-Once §8 works, make the drone start by itself with no monitor attached:
+### Step 40: Install the autostart service (Nano)
 
-- [ ] Run:
-
+**Run:**
 ```bash
 sudo jetson/install_service.sh
-sudo nano /etc/default/edge-drone      # check EDGE_GPS_PORT; EDGE_SERVER_URL=auto finds the laptop
-sudo systemctl start edge-drone
-journalctl -u edge-drone -f            # live log, Ctrl+C to leave
+sudo nano /etc/default/edge-drone
 ```
+In the editor, check `EDGE_GPS_PORT` (`/dev/ttyTHS1` or `/dev/ttyUSB0`) and leave `EDGE_SERVER_URL=auto`. Save with Ctrl+O, Enter, Ctrl+X.
 
-From now on, powering the Nano does this by itself: hotspot up → max clocks → pipeline running → it finds the laptop.
+### Step 41: Start it and watch the log (Nano)
 
-To turn it off: `sudo systemctl disable --now edge-drone`.
+**Run:**
+```bash
+sudo systemctl start edge-drone
+journalctl -u edge-drone -f
+```
+**✅ Check:** the same lines as Step 36. Leave the log with Ctrl+C. To turn autostart off later: `sudo systemctl disable --now edge-drone`.
+
+### Step 42: Reboot test
+
+**Do:** `sudo reboot`. Wait about 1–2 minutes, keeping the laptop on DRONE-EDGE with the station running.
+
+**✅ Check:** the dashboard goes **LIVE** with no keyboard or SSH needed. This is how it runs on the drone.
+
+### Step 43: Power from the drone battery
+
+**Do:** use a **5 V ≥ 4 A UBEC/BEC** from the drone battery, its output wired to a 5.5 × 2.1 mm barrel plug (centre +).
+
+- Measure the output with the multimeter **before** connecting the Nano: it must read **4.9–5.2 V**.
+- Keep the **J48** jumper on.
+
+### Step 44: Mount everything
+
+**Do:**
+- **Webcam:** pointing **down** (for search), rigid, with the shutter open and the lens clean.
+- **GPS puck:** on **top**, flat, with clear sky, at least 10 cm from the Nano, the power wires and the motors (interference).
+- **Nano:** keep the fan's air path open, and use foam or soft mounts against vibration.
+- **Cables:** strain-relief all of them (zip ties), with no loose wires near the propellers.
+- **Wi-Fi antenna:** pointing down or sideways toward the ground station, not covered by carbon or metal.
+
+**✅ Check:** power on the drone; the dashboard shows **LIVE**, `FIX`, and the camera picture.
 
 ---
 
-## 10. Mission day checklist
+# Part J: Mission day, and after
 
-**At home, with internet, the day before**
-- [ ] Map tiles cached for the flight area (§2.6)
-- [ ] `git pull` on the laptop and the Nano (same branch)
-- [ ] Laptop and drone batteries charged
+### Step 45: Mission day checklist
+
+**The day before (with internet)**
+- [ ] Map and terrain tiles saved for the flight area (Step 10, Do 5)
+- [ ] `git pull` on the laptop **and** the Nano
+- [ ] All batteries charged: drone, laptop and the UBEC source
 - [ ] Hotspot password written down
 
 **On site, before take-off**
-- [ ] J48 jumper on, 5 V 4 A supply or battery connected, **fan spinning**
-- [ ] Webcam **shutter open**, lens clean, mounted pointing down or forward as planned
-- [ ] GPS puck on top with a clear sky view
-- [ ] Laptop joined **DRONE-EDGE**, `python ground_station/app.py` running, dashboard open
-- [ ] Top bar: **LIVE** and **FIX · ≥ 6 sats**
-- [ ] Camera preview updating
-- [ ] Test detection: show a fire image on a phone to the camera → alert + beep
-- [ ] Sound on (🔔), and click **New mission** with a name (e.g. `Site A – 12 Nov`)
+- [ ] Fan spinning, J48 jumper on, webcam shutter open
+- [ ] Laptop joined to **DRONE-EDGE**, `python ground_station/app.py` running, dashboard open, 🔔 sound on
+- [ ] Top bar shows **LIVE** and **FIX · ≥ 6 sats**
+- [ ] Camera picture updating
+- [ ] Test: show a fire picture on a phone to the camera → alert + beep
+- [ ] **New mission** (top bar, or ⌘K) named e.g. `Site A – 12 Nov`
 
 **During the flight**
-- [ ] Watch for **LINK LOST**. Alerts are kept on the drone and arrive when it's back in range.
-- [ ] **Acknowledge** alerts as the team responds, and **Resolve** them when handled, adding a **Note** (e.g. "team 2 dispatched")
+- [ ] Watch for **LINK LOST**: alerts wait on the drone and arrive when it's back in range.
+- [ ] **Person** alerts show a red banner until acknowledged. **Acknowledge** them when the team responds, **Resolve** when done, and add a **Note** (e.g. "team 2 dispatched").
 
 **After landing**
-- [ ] Check "Alerts waiting on drone" shows **0** before powering off
-- [ ] Export (§11)
+- [ ] The **Waiting** card in the Flight panel shows **0 alerts** before you power off.
 
----
+### Step 46: Review the mission
 
-## 11. After the mission
+**Do:**
+- **Replay** (left rail): play the flight back at 16×, and click alert ticks to jump to each event.
+- **Analytics:** check the **compute saved** percentage, power and temperatures. **Table** shows the raw numbers.
 
-From the dashboard's **Export ▾** menu (for the current mission):
+### Step 47: Export and back up
 
-| Export | Use it for |
+**Do:** use **Export** (top bar) or the **Missions** view.
+
+| Export | Open it with |
 |---|---|
-| **CSV** | Excel / Google Sheets |
-| **GeoJSON** | QGIS or other GIS tools: alerts as points, flight track as a line |
-| **KML** | **Google Earth**: coloured placemarks plus the flight track |
-| **Printable report** | summary, counts, first-detection times, distance flown, table with snapshots. Use **Print → Save as PDF**. |
+| CSV | Excel / Google Sheets |
+| GeoJSON | QGIS / GIS tools |
+| KML | **Google Earth**: coloured placemarks plus the flight track |
+| Report | the browser. **Print → Save as PDF** for a mission report with photos. |
 
-The station keeps everything in `ground_station/received/` (database, snapshots and map tiles). Back that folder up after important missions.
+**Back up** the folder `ground_station/received/` after important missions. It holds all missions, photos and saved maps.
+
+🎉 **That's the whole system, from parts to a flown and reported mission.**
 
 ---
 
-## 12. Troubleshooting
+# Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Nano resets or shuts off when YOLO starts | power: 5 V **4 A** barrel jack plus the **J48 jumper**. Micro-USB can't keep up. |
-| Nano won't power on from the barrel jack | J48 jumper missing |
-| `Could not open source: 0` | webcam unplugged, or `/dev/video0` missing on the host (`ls /dev/video*`) |
-| Preview is black | webcam privacy shutter closed |
-| `no NMEA data on /dev/ttyTHS1` | TX/RX not crossed, GPS not powered, or `nvgetty` still enabled (§5.2 step 3) |
-| GPS stuck at `no fix` | indoors or no sky view. Go outside and wait up to 3 min. |
-| Dashboard stuck on **WAITING FOR DRONE** | laptop not on DRONE-EDGE; laptop firewall blocking Python (§7); Nano log lacks `[link] ground station found`. Workaround: `EDGE_SERVER_URL=http://<laptop-ip>:5000` on the Nano. Test from the Nano: `curl http://<laptop-ip>:5000/health`. |
-| **LINK LOST** during flight | out of Wi-Fi range or the pipeline stopped. Alerts are buffered and arrive later. |
-| Map is grey or blank in the field | the tiles weren't cached. Redo §2.6 at home. |
-| No alert sound | click 🔔 once (browsers block sound until you interact with the page) |
-| `check_fire_model.py` fails on the Nano | YOLO26 / old Ultralytics: see the fallbacks under §6 |
-| TensorRT export killed | out of memory: rerun `jetson/setup_nano.sh` (swap) and close the desktop session |
-| Everything is slow | `sudo nvpmodel -m 0 && sudo jetson_clocks` (the boot service does this for you) |
-| Board very hot (cards show WARM/HOT) | check the fan is spinning; HOT is ≥ 80 °C |
-| Station says `bad link key` (401) | `GS_LINK_KEY` on the laptop and `EDGE_LINK_KEY` on the Nano must match (or leave both unset) |
+| Nano won't power on from the barrel jack | J48 jumper missing (Step 13) |
+| Nano resets when the AI starts | weak power: use 5 V **4 A** with J48 (Step 13), or a stronger UBEC (Step 43) |
+| `Could not open source: 0` | webcam not plugged in (`ls /dev/video*`), Step 21 |
+| Camera picture is black | the webcam privacy shutter is closed |
+| `no NMEA data on /dev/tty…` | TX/RX not crossed, GPS not powered, or `nvgetty` still on (Step 24) |
+| GPS stuck at `no fix` | no sky view: go outside and wait up to 3 min |
+| Dashboard stuck on **WAITING FOR DRONE** | laptop not on DRONE-EDGE; firewall blocking Python (Step 33); the Nano log lacks `ground station found`. Workaround: `EDGE_SERVER_URL=http://<laptop-ip>:5000` on the Nano. Test from the Nano: `curl http://<laptop-ip>:5000/health`. |
+| **Reconnecting…** in the top bar | the station isn't running or the laptop lost Wi-Fi. It recovers by itself once it's back. |
+| **LINK LOST** while flying | out of Wi-Fi range or the pipeline stopped. Alerts are buffered and arrive later. |
+| Map grey or blank in the field | the area wasn't saved: redo Step 10 Do 5 at home |
+| 3D shows "Terrain not cached for this area" | prefetch with `--terrain` (Step 10 Do 5). The map still tilts, just flat. |
+| "Map needs WebGL" | the laptop browser has no GPU support: use Chrome or Edge, and update graphics drivers. Alerts, camera, replay and analytics still work. |
+| No alert sound | click 🔔 once; check the mute button |
+| `Dashboard not built` page | someone deleted `ground_station/static/app/`: run `git checkout ground_station/static/app`, or rebuild it (see the dashboard UI section below) |
+| `check_fire_model.py` fails on the Nano | Step 28 fallbacks |
+| TensorRT export killed | out of memory: re-run `jetson/setup_nano.sh` (swap) and log out of the desktop |
+| Panels show **WARM** / **HOT** | check the fan spins and the airflow isn't blocked (HOT is ≥ 80 °C) |
+| `bad link key` (401) | `GS_LINK_KEY` (laptop) and `EDGE_LINK_KEY` (Nano) must match, or leave both unset |
 
 ---
 
-## 13. Coding guide
+# Coding guide
 
-### 13.1 Where things live
+### Where things live
 
 | You want to change… | File |
 |---|---|
-| Any setting or threshold | `config.py` (environment variables override some, see §14) |
-| How a frame is taken (camera, video, rate, size) | `frame_source.py` |
-| The cheap Stage 1 check (fire colours, motion compensation) | `stage1_gate.py` |
-| YOLO models and how often they run | `stage2_detector.py` (`Stage2Detector`, `Stage2Scheduler`) |
-| Which detections become alerts (cooldown, person threshold, priority) | `alert_store.py` |
-| GPS (sim / NMEA M8N / MAVLink) | `gps_source.py`, `gps_sim.py` |
-| What the drone sends to the station, and how often | `link.py`, `system_stats.py` |
+| Settings and thresholds | `config.py` (environment variables override some; see Reference) |
+| How pictures are taken | `frame_source.py` |
+| The cheap Stage 1 check | `stage1_gate.py` |
+| The AI models, and how often they run | `stage2_detector.py` |
+| What becomes an alert (cooldown, person threshold) | `alert_store.py` |
+| GPS (sim / M8N NMEA / MAVLink) | `gps_source.py`, `gps_sim.py` |
+| What the drone sends to the laptop | `link.py`, `system_stats.py` |
 | The main loop | `run_pipeline.py` |
-| Station API and storage | `ground_station/app.py`, `ground_station/store.py` |
-| Dashboard UI (React + TypeScript) | `ground_station/web/src/`. Build output in `ground_station/static/app/` (see §13.5) |
-| Exports and report | `ground_station/exports.py`, `templates/report.html` |
-| Jetson scripts (Docker, setup, hotspot, autostart) | `jetson/` |
+| Station API and database | `ground_station/app.py`, `store.py`, `tiles.py`, `exports.py` |
+| **Dashboard UI** (React + TypeScript) | `ground_station/web/src/`. Build output in `ground_station/static/app/` |
+| Jetson scripts | `jetson/` |
 
-### 13.2 Common changes
+### Common changes
 
-- **Tune Stage 1 for your footage:** run `python test_stage1.py` on a video, then adjust `FIRE_HSV_*`, `FIRE_PIXEL_FRACTION` and `DIFF_FRACTION` in `config.py`.
-- **Make YOLO run more or less often during a fire:** set `EDGE_STAGE2_EVERY_N` (`1` = every frame, `3` = default).
-- **Change alert sensitivity:** `CONF_THRESHOLD` (all detections), `PERSON_ALERT_CONF` (people), `ALERT_COOLDOWN_SEC`.
+- **Tune Stage 1 on your footage:** `python test_stage1.py`, then adjust `FIRE_HSV_*`, `FIRE_PIXEL_FRACTION` and `DIFF_FRACTION` in `config.py`.
+- **Change how often YOLO runs during a fire:** `EDGE_STAGE2_EVERY_N` (`1` = every frame, `3` = default).
+- **Change alert sensitivity:** `CONF_THRESHOLD`, `PERSON_ALERT_CONF`, `ALERT_COOLDOWN_SEC`.
 - **Add a new detection type** (e.g. "flood"):
-  1. Train or obtain a YOLO model and load it in `Stage2Detector`.
-  2. Add it to `PRIORITY` in `alert_store.py` **and** `ground_station/app.py`.
-  3. Add it to `TYPES` in `ground_station/exports.py`, and in the UI to `ALERT_TYPES`/`PRIORITY` in `web/src/lib/types.ts` and `LETTER` in `web/src/ui/Badge.tsx` and `web/src/features/map/markers.ts`.
-  4. Add a colour token in `web/src/styles/tokens.css` (dark and light). Check it stays distinguishable from blue, orange and aqua for colour-blind users (for example with a colour-blindness simulator), then rebuild the UI (§13.5).
-  5. Add tests.
-- **Change how often the drone reports:** `TELEMETRY_INTERVAL_SEC`, `PREVIEW_INTERVAL_SEC` and `ALERT_FORWARD_INTERVAL_SEC` in `config.py`.
+  1. Load its model in `stage2_detector.py`.
+  2. Add it to `PRIORITY` in `alert_store.py` and `ground_station/app.py`, and to `TYPES` in `ground_station/exports.py`.
+  3. In the UI: add it to `ALERT_TYPES`/`PRIORITY` in `web/src/lib/types.ts`, and to `LETTER` in `web/src/ui/Badge.tsx` and `web/src/features/map/markers.ts`.
+  4. Add a colour token in `web/src/styles/tokens.css` (dark and light) that colour-blind users can tell apart from blue, orange and aqua.
+  5. Rebuild the UI, and add tests.
 
-### 13.3 How we work
+### Working on the dashboard UI
 
-1. Pull first: `git pull`, on branch `temp-jetson-fixes` or a new `temp-*` branch. **Never push to `main`** without the team agreeing.
-2. Write or adjust a test in `tests/` first, then the code.
-3. `python -m pytest`: everything must pass.
-4. Check your change on the dashboard with `demo_drone.py` (§2.4) before testing on the Nano.
-5. Commit with a clear message, then push your branch.
-6. Drone-side code must stay **Python 3.8 compatible** (the JetPack 4 container): no `match`, no `list[int]` type hints, no `X | Y` types.
+You need this only if you change the dashboard. Running the station never needs Node.
 
-### 13.4 Test files
-
-| Test file | Covers |
-|---|---|
-| `tests/test_stage1_gate.py` | Stage 1, including motion compensation |
-| `tests/test_scheduler.py` | Stage 2 scheduler |
-| `tests/test_gps*.py` | GPS sim and NMEA (including a fake serial port) |
-| `tests/test_link.py` | drone link, discovery, and `run_pipeline.py` end to end |
-| `tests/test_gs_*.py` | station store, API, live updates, exports, tiles |
-| `tests/test_power_monitor.py`, `tests/test_system_stats.py` | Jetson sensors |
-
----
-
-### 13.5 Working on the dashboard UI
-
-The dashboard is a React + TypeScript app in `ground_station/web/`. Its **built** files are committed in `ground_station/static/app/`, so the field laptop only needs Python. You need Node only to change the UI.
-
-- [ ] Install **Node 22** (22.12 or newer) from nodejs.org.
-- [ ] Install the exact pinned packages:
+- **Install Node 22** (22.12 or newer) from nodejs.org.
+- **Install the packages:**
   ```bash
   cd ground_station/web && npm ci
   ```
-- [ ] Start the station in one terminal (`python ground_station/app.py`), then run the dev server in another:
+- **Live development:** with `python ground_station/app.py` running in another terminal:
   ```bash
   npm run dev
   ```
-  Open http://localhost:5173/static/app/. Changes reload instantly, and `/api`, `/tiles` and the rest are passed through to the station on :5000.
-- [ ] Run the unit tests (Vitest) and the type check:
+  Then open http://localhost:5173/static/app/.
+- **Unit tests and type check:**
   ```bash
   npm test && npm run typecheck
   ```
-- [ ] Run the end-to-end tests. Playwright starts its own station on port 5077 and the demo drone. The first time, install its browser with `npx playwright install chromium`.
+- **End-to-end tests** (the first time, run `npx playwright install chromium`):
   ```bash
   GS_PYTHON=../../venv/bin/python npm run test:e2e
   ```
-  On Windows, set `GS_PYTHON` to `..\..\venv\Scripts\python.exe`.
-- [ ] Build, then **commit the build output** together with your source changes:
+  On Windows, `GS_PYTHON` is `..\..\venv\Scripts\python.exe`.
+- **Build, check, and commit the build together with your source:**
   ```bash
   npm run build && npm run check:build
   ```
@@ -678,39 +733,45 @@ The dashboard is a React + TypeScript app in `ground_station/web/`. Its **built*
   git add ground_station/web ground_station/static/app
   ```
 
-| Folder | What's in it |
+| UI folder | What's in it |
 |---|---|
 | `src/lib/` | API client, types, server clock, formatting, geometry, saved preferences |
-| `src/store/` | live state (Zustand), selection, map commands, overlays |
-| `src/features/shell/` | command bar, navigation, ⌘K palette, notifications, person banner |
+| `src/store/` | live state, selection, map commands, dialogs |
+| `src/features/shell/` | top bar, navigation, ⌘K palette, notifications, person banner |
 | `src/features/map/` | MapLibre map: offline style, 3D terrain, drone animation, alert clusters |
 | `src/features/live/`, `alerts/`, `replay/`, `analytics/`, `missions/` | the four views |
 | `tests/unit/`, `tests/e2e/` | Vitest and Playwright tests |
 
-## 14. Reference
+### How we work
 
-### Commands cheat sheet
+1. `git pull` on `temp-jetson-fixes` or your own `temp-*` branch. **Never push `main`.**
+2. Test first, then code. Run `python -m pytest`, and for UI changes also `npm test` and `npm run test:e2e`.
+3. Check the dashboard with `demo_drone.py` (Step 8) before trying it on the Nano.
+4. Drone-side Python must stay **3.8-compatible** (it runs in the JetPack 4 container).
 
-| Where | Command | What |
+---
+
+# Reference
+
+### Commands
+
+| Where | Command | What it does |
 |---|---|---|
 | laptop | `python ground_station/app.py` | ground station + dashboard (http://localhost:5000) |
 | laptop | `python ground_station/demo_drone.py --station http://localhost:5000` | simulated drone |
-| laptop | `python ground_station/tiles.py prefetch --bbox lat1,lon1,lat2,lon2 --zoom 14-18` | cache map tiles |
+| laptop | `python ground_station/tiles.py prefetch --bbox lat1,lon1,lat2,lon2 --zoom 14-18 --terrain` | save map + 3D terrain for offline use |
 | laptop | `python -m pytest` | backend tests |
-| laptop | `cd ground_station/web && npm test` | dashboard unit tests (Vitest) |
-| laptop | `cd ground_station/web && GS_PYTHON=../../venv/bin/python npm run test:e2e` | dashboard end-to-end tests (Playwright) |
-| laptop | `cd ground_station/web && npm run build` | rebuild the dashboard (commit `ground_station/static/app/`) |
-| laptop | `python export_onnx.py` | ONNX fallback models |
+| laptop | `cd ground_station/web && npm test` | dashboard tests |
 | Nano | `jetson/setup_nano.sh` | one-time setup |
 | Nano | `jetson/run_docker.sh python3 run_pipeline.py` | the drone pipeline |
 | Nano | `jetson/run_docker.sh python3 gps_source.py` | GPS test |
 | Nano | `jetson/run_docker.sh python3 power_monitor.py` | power sensor test |
 | Nano | `jetson/run_docker.sh python3 benchmark.py --tag NAME` | benchmark (time + energy) |
 | Nano | `jetson/run_docker.sh python3 export_trt.py` | build TensorRT engines |
-| Nano | `jetson/run_docker.sh python3 forward_now.py` | push buffered alerts now |
-| Nano | `sudo jetson/hotspot.sh` / `--off` | field Wi-Fi on/off |
+| Nano | `jetson/run_docker.sh python3 forward_now.py` | send buffered alerts now |
+| Nano | `sudo jetson/hotspot.sh` / `--off` | field Wi-Fi on / off |
 | Nano | `sudo jetson/install_service.sh` | start at boot |
-| Nano | `journalctl -u edge-drone -f` | live log of the boot service |
+| Nano | `journalctl -u edge-drone -f` | live log |
 
 ### Settings (environment variables)
 
@@ -720,34 +781,26 @@ The dashboard is a React + TypeScript app in `ground_station/web/`. Its **built*
 | `EDGE_DEVICE` | `cpu` | `0` = Jetson GPU |
 | `EDGE_PERSON_WEIGHTS` / `EDGE_FIRE_WEIGHTS` | `weights/*.pt` | `.pt`, `.engine` (TensorRT) or `.onnx` |
 | `EDGE_GPS` | `sim` | `nmea` for the M8N, `sim` for the simulated path, `mavlink` for a flight controller |
-| `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / `0` (auto) | GPS serial port |
-| `EDGE_SERVER_URL` | `auto` | finds the station automatically; or `http://<laptop-ip>:5000` |
-| `EDGE_DRONE_ID` | hostname | name shown on the dashboard |
-| `EDGE_LINK_KEY` | none | shared key, must equal `GS_LINK_KEY` |
-| `EDGE_MOTION_COMP` | `1` | Stage 1 motion compensation |
-| `EDGE_STAGE2_EVERY_N` | `3` | YOLO frequency while a detection is confirmed |
-| `EDGE_DB_PATH` | `data/alerts.db` | drone alert buffer |
+| `EDGE_GPS_PORT` / `EDGE_GPS_BAUD` | `/dev/ttyTHS1` / auto | GPS serial port |
+| `EDGE_SERVER_URL` | `auto` | finds the laptop by itself, or `http://<laptop-ip>:5000` |
+| `EDGE_DRONE_ID` / `EDGE_LINK_KEY` | hostname / none | name on the dashboard / shared key |
+| `EDGE_MOTION_COMP` / `EDGE_STAGE2_EVERY_N` | `1` / `3` | Stage 1 motion compensation / YOLO frequency while confirmed |
 | `GS_HOST` / `GS_PORT` | `0.0.0.0` / `5000` | station address (`127.0.0.1` = this laptop only) |
-| `GS_DATA_DIR` | `ground_station/received` | station database, snapshots and map tiles |
-| `GS_LINK_KEY` | none | key the drone must send |
-| `GS_BEACON_TARGETS` / `GS_BEACON_PORT` | `255.255.255.255,10.42.0.255` / `5005` | where the station announces itself |
+| `GS_DATA_DIR` / `GS_LINK_KEY` | `ground_station/received` / none | station data folder / key the drone must send |
 
 ### Ports
 
-| Port | Protocol | Direction | Used for |
-|---|---|---|---|
-| 5000 | TCP | Nano → laptop | alerts, status updates, previews; the dashboard in the browser |
-| 5005 | UDP broadcast | laptop → Wi-Fi | station beacon (auto-discovery) |
-| 8090 | TCP | on the Nano only | optional CSI camera bridge |
+| Port | Used for |
+|---|---|
+| TCP 5000 | drone → laptop (alerts, status, pictures), and the dashboard |
+| UDP 5005 | the laptop announces itself to the drone |
 
 ### Where data is stored
 
 | Where | What |
 |---|---|
-| Nano `data/alerts.db` | alert buffer (`sent=0` means still waiting for the link) |
-| Nano `data/snapshots/` | alert snapshots with boxes |
+| Nano `data/alerts.db`, `data/snapshots/` | alerts waiting to be sent, and their photos |
 | Nano `data/benchmark_*.json` | benchmark results |
-| Laptop `ground_station/received/station.db` | all missions, alerts, notes and the flight track |
-| Laptop `ground_station/received/snaps/` | snapshots received from the drone |
-| Laptop `ground_station/received/tiles/` | cached map tiles |
-| Laptop `ground_station/received/terrain/` | cached 3D terrain tiles |
+| Laptop `ground_station/received/station.db` | all missions, alerts, notes, the flight track and telemetry history |
+| Laptop `ground_station/received/snaps/` | alert photos |
+| Laptop `ground_station/received/tiles/`, `terrain/` | saved map and 3D terrain |
