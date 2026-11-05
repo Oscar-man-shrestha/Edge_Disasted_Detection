@@ -1,0 +1,1 @@
+import{t as e}from"./index-DO7qSSW_.js";var t=e();function n(e){return(0,t.jsx)(`section`,{className:`p-6`,children:(0,t.jsx)(`h1`,{className:`text-lg font-semibold`,children:`Analytics`})})}export{n as default};
