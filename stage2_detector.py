@@ -10,6 +10,9 @@ class Stage2Detector:
     """
 
     def __init__(self):
+        import numpy as np
+        if not hasattr(np, "bool"):           # TensorRT 8.2 (JetPack 4) still uses np.bool,
+            np.bool = bool                    # removed in numpy 1.24
         from ultralytics import YOLO          # imported here so tests can run without it
         self.person_model = YOLO(config.PERSON_WEIGHTS, task="detect")
         self.fire_model = None

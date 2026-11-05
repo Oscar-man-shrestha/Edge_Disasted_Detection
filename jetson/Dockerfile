@@ -8,6 +8,10 @@ FROM ultralytics/ultralytics:latest-jetson-jetpack4
 ARG UPGRADE_ULTRALYTICS=0
 RUN if [ "$UPGRADE_ULTRALYTICS" = "1" ]; then pip install --no-cache-dir --no-deps -U ultralytics; fi
 
+# TensorRT 8.2 (JetPack 4) needs numpy < 1.24. Without this pin Ultralytics
+# auto-installs numpy 1.23.5 at every run of a .engine model, which needs internet.
+RUN pip install --no-cache-dir "numpy==1.23.5"
+
 RUN pip install --no-cache-dir flask requests pyserial \
  && (pip install --no-cache-dir pymavlink || echo "pymavlink not installed (only needed for EDGE_GPS=mavlink)")
 
