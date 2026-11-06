@@ -51,3 +51,44 @@ export function interpolateAt(samples: Positioned[], t: number): DronePose | nul
     course: ca !== null && cb !== null ? lerpAngle(ca, cb, f) : (ca ?? cb),
   };
 }
+
+/** Coordinates typed or pasted by an operator, e.g. "12.97, 77.59", "12.97 77.59",
+ *  "12.97N 77.59E", "12.97°S, 77.59°W". Latitude first (the usual order); if the first
+ *  number cannot be a latitude but the second can, they are swapped. Null if not coordinates. */
+export function parseCoords(text: string): LatLon | null {
+  const m = text.trim().match(
+    /^\(?\s*(-?\d{1,3}(?:\.\d+)?)\s*°?\s*([NSns])?\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*°?\s*([EWew])?\s*\)?$/);
+  if (!m) return null;
+  let a = Number(m[1]), b = Number(m[3]);
+  if (m[2] && /s/i.test(m[2])) a = -Math.abs(a);
+  if (m[4] && /w/i.test(m[4])) b = -Math.abs(b);
+  if (Math.abs(a) > 90 && Math.abs(b) <= 90 && !m[2] && !m[4]) [a, b] = [b, a];
+  if (Math.abs(a) > 90 || Math.abs(b) > 180) return null;
+  return { lat: a, lon: b };
+}
+
+/** Pixel offsets that fan out markers sharing (about) the same spot into a small ring, so
+ *  every one can be clicked. Markers alone at their spot get no entry. Positions closer
+ *  than ~1 m (5 decimals) count as the same spot. */
+export function spreadOffsets<T extends { id: number; lat: number; lon: number }>(items: T[]):
+    { offsets: Map<number, [number, number]>; hubs: (LatLon & { legs: [number, number][] })[] } {
+  const groups = new Map<string, T[]>();
+  for (const it of items) {
+    const k = `${it.lat.toFixed(5)},${it.lon.toFixed(5)}`;
+    const g = groups.get(k);
+    if (g) g.push(it); else groups.set(k, [it]);
+  }
+  const offsets = new Map<number, [number, number]>();
+  const hubs: (LatLon & { legs: [number, number][] })[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    g.sort((x, y) => x.id - y.id);                       // stable order: newest last
+    const r = Math.max(24, (g.length * 34) / (2 * Math.PI)); // 30 px pins, ~4 px apart
+    g.forEach((it, i) => {
+      const ang = -Math.PI / 2 + (2 * Math.PI * i) / g.length;   // start at 12 o'clock
+      offsets.set(it.id, [Math.round(r * Math.cos(ang)), Math.round(r * Math.sin(ang))]);
+    });
+    hubs.push({ lat: g[0].lat, lon: g[0].lon, legs: g.map((it) => offsets.get(it.id)!) });
+  }
+  return { offsets, hubs };
+}

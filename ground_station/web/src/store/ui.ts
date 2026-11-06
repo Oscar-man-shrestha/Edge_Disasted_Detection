@@ -17,7 +17,8 @@ export const useSelection = create<{ selectedId: number | null; select(id: numbe
 }));
 
 export type MapCommand =
-  | { type: "fit" } | { type: "north" } | { type: "flyTo"; lat: number; lon: number };
+  | { type: "fit" } | { type: "north" } | { type: "flyTo"; lat: number; lon: number }
+  | { type: "goto"; lat: number; lon: number };          // searched coordinates: fly + crosshair
 
 /** One-shot commands for the map (palette/shortcuts/drawer -> MissionMap). */
 export const useMapCommand = create<{ cmd: (MapCommand & { seq: number; at: number }) | null; send(c: MapCommand): void }>()(

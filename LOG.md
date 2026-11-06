@@ -368,3 +368,18 @@ Result: pins **0.7 px** max error at rest, **0 px during a mouse drag**, drone 0
 - Fix: an **explicitly empty** `GS_LINK_KEY` / `EDGE_LINK_KEY` now means "key off" (unset still reads `.link_key`);
   the e2e config sets `GS_LINK_KEY=""`. Test added.
 - Now: **11/11 e2e**, 72/72 UI unit, 131 Python tests pass.
+
+### 25. Coordinate search + pins at the same spot + replay end bug
+- **Go to coordinates:** in the search box (Ctrl+K) type or paste `12.97, 77.59`, `12.97 77.59`, `12.97N 77.59E`
+  or `12.97°S, 77.59°W` → **Go to** flies the map there and drops a yellow crosshair. Works offline (no place-name
+  search: that needs internet, which the field laptop on the drone's hotspot doesn't have). If the first number
+  can't be a latitude (e.g. `151.21, -33.86`) the two are swapped; ambiguous input is kept as typed.
+- **Pins at the same spot** (within ~1 m: the drone hovering, or the simulated GPS) no longer hide each other:
+  they fan out in a ring around a white dot at the **true position**, with a thin line to each pin.
+  Measured in the browser on live data: 11 pins, **0 overlapping, all clickable**, centre dot 0.4 px from the
+  real coordinates; searched point 0.5 px.
+- **Replay bug (old, not from today):** the time slider used whole seconds with `max = round(span)`, so when the
+  newest alert was the very last event (e.g. at 15.3 s, slider max 15) it stayed **hidden even at the end of
+  replay**. This made an e2e test fail on some runs and pass on others. Now the right end of the slider is the
+  real end. Unit test added (failed before, passes after); replay e2e passed 3/3 on repeat.
+- Tests: **94 UI unit, 11/11 e2e, 131 Python**. One drone for now; nothing assumes more.

@@ -6,12 +6,13 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { MapPinOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DronePose } from "../../lib/geo";
+import { spreadOffsets } from "../../lib/geo";
 import type { Alert, AlertType } from "../../lib/types";
 import { isDark } from "../../hooks/useTheme";
 import { useMapCommand, usePrefs } from "../../store/ui";
 import { MapControls, type LayerToggles } from "./MapControls";
 import { ALERT_SOURCE_LAYER, alertSourceLayer, ATTRIBUTION, buildStyle } from "./mapStyle";
-import { alertElement, clusterElement, droneElement, updateAlertElement, updateClusterElement } from "./markers";
+import { alertElement, clusterElement, droneElement, hubElement, targetElement, updateAlertElement, updateClusterElement, updateHubElement } from "./markers";
 import { useAnimatedDrone } from "./useAnimatedDrone";
 import { hasWebGL } from "./webgl";
 
@@ -151,19 +152,31 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
   const renderAlerts = useCallback(() => {
     if (!map) return;
     const keep = new Set<string>();
-    const put = (key: string, lngLat: [number, number], make: () => HTMLElement, update: (el: HTMLElement) => void) => {
+    const put = (key: string, lngLat: [number, number], make: () => HTMLElement, update: (el: HTMLElement) => void,
+                 offset: [number, number] = [0, 0]) => {
       keep.add(key);
       const old = alertMarkers.current.get(key);
-      if (old) { old.setLngLat(lngLat); update(old.getElement()); return; }
-      alertMarkers.current.set(key, new Marker({ element: make() }).setLngLat(lngLat).addTo(map));
+      if (old) { old.setLngLat(lngLat).setOffset(offset); update(old.getElement()); return; }
+      alertMarkers.current.set(key, new Marker({ element: make(), offset }).setLngLat(lngLat).addTo(map));
+    };
+    // alerts at the same spot fan out around a dot at their true position, so each can be clicked
+    const placeLeaves = (leaves: Alert[]) => {
+      const { offsets, hubs } = spreadOffsets(leaves.map((a) => ({ id: a.id, lat: a.lat!, lon: a.lon! })));
+      for (const h of hubs) {
+        put(`h${h.lat.toFixed(5)},${h.lon.toFixed(5)}`, [h.lon, h.lat], () => hubElement(h.legs),
+          (el) => updateHubElement(el, h.legs));
+      }
+      for (const a of leaves) {
+        put(`a${a.id}`, [a.lon!, a.lat!], () => alertElement(a, a.id === selectedId, select),
+          (el) => updateAlertElement(el, a, a.id === selectedId, select), offsets.get(a.id));
+      }
     };
     if (shown.length <= CLUSTER_ABOVE) {
-      for (const a of shown) {
-        put(`a${a.id}`, [a.lon!, a.lat!], () => alertElement(a, a.id === selectedId, select),
-          (el) => updateAlertElement(el, a, a.id === selectedId, select));
-      }
+      placeLeaves(shown);
     } else {
       const byId = new Map(shown.map((a) => [a.id, a]));
+      const leaves: Alert[] = [];
+      const leafIds = new Set<number>();
       for (const f of map.querySourceFeatures("alerts")) {
         const p = f.properties as any;
         const [lon, lat] = (f.geometry as any).coordinates as [number, number];
@@ -177,12 +190,10 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
             (el) => updateClusterElement(el, counts, p.point_count, zoomIn));
         } else {
           const a = byId.get(p.id);
-          if (a && !keep.has(`a${a.id}`)) {
-            put(`a${a.id}`, [lon, lat], () => alertElement(a, a.id === selectedId, select),
-              (el) => updateAlertElement(el, a, a.id === selectedId, select));
-          }
+          if (a && !leafIds.has(a.id)) { leafIds.add(a.id); leaves.push(a); }
         }
       }
+      placeLeaves(leaves);
     }
     for (const [k, mk] of alertMarkers.current) if (!keep.has(k)) { mk.remove(); alertMarkers.current.delete(k); }
   }, [map, shown, selectedId, select]);
@@ -272,11 +283,18 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
     fitted.current = true;                       // the first automatic fit must not override it
     if (cmd.type === "fit") fitAll();
     else if (cmd.type === "north") map.easeTo({ bearing: 0, duration: 500 });
-    else if (cmd.type === "flyTo") {
+    else if (cmd.type === "flyTo" || cmd.type === "goto") {
       if (mode === "live") setPrefs({ follow: false });
-      map.flyTo({ center: [cmd.lon, cmd.lat], zoom: Math.max(map.getZoom(), 17), duration: 900, pitch: map.getPitch() });
+      if (cmd.type === "goto") {
+        if (!target.current) target.current = new Marker({ element: targetElement() });
+        target.current.setLngLat([cmd.lon, cmd.lat]).addTo(map);
+      }
+      map.flyTo({ center: [cmd.lon, cmd.lat], zoom: Math.max(map.getZoom(), cmd.type === "goto" ? 16 : 17),
+        duration: 900, pitch: map.getPitch() });
     }
   }, [cmd, map]); // eslint-disable-line react-hooks/exhaustive-deps
+  const target = useRef<Marker | null>(null);
+  useEffect(() => () => { target.current?.remove(); target.current = null; }, [map]);
 
   return (
     <div className="relative h-full w-full" style={{ background: "var(--gs-map-grid)" }}>

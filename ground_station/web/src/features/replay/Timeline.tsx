@@ -24,8 +24,11 @@ export function Timeline({ tl, b, t, onSeek }: { tl: TL; b: Bounds; t: number; o
           );
         })}
       </div>
-      <input type="range" aria-label="Replay time" min={0} max={Math.round(span)} step={1}
-        value={Math.round(t - b.start)} onChange={(e) => onSeek(b.start + Number(e.target.value))}
+      {/* whole-second steps, but the right end is the real end: rounding could otherwise stop
+          short of it and hide the newest alert (e.g. at 15.3 s with max 15) */}
+      <input type="range" aria-label="Replay time" min={0} max={Math.ceil(span)} step={1}
+        value={t >= b.end ? Math.ceil(span) : Math.round(t - b.start)}
+        onChange={(e) => { const v = Number(e.target.value); onSeek(v >= Math.ceil(span) ? b.end : b.start + v); }}
         aria-valuetext={`${fmtDuration(t - b.start)} of ${fmtDuration(span)}`}
         className="h-2 w-full cursor-pointer accent-[var(--gs-accent)]" />
       <div aria-hidden className="relative mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">

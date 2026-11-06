@@ -79,3 +79,32 @@ export function updateClusterElement(el: HTMLElement, counts: Record<AlertType, 
   if (el.innerHTML !== html) el.innerHTML = html;
   el.onclick = (e) => { e.stopPropagation(); onClick(); };
 }
+
+/** True position of a fanned-out group: a dot with a thin leg to each pin. Numbers only in innerHTML. */
+export function hubElement(legs: [number, number][]): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "gs-hub";
+  el.setAttribute("aria-hidden", "true");
+  updateHubElement(el, legs);
+  return el;
+}
+
+export function updateHubElement(el: HTMLElement, legs: [number, number][]): void {
+  const r = Math.max(30, ...legs.map(([x, y]) => Math.ceil(Math.hypot(x, y)) + 2));
+  const lines = legs.map(([x, y]) => `<line x1="${r}" y1="${r}" x2="${r + Number(x)}" y2="${r + Number(y)}"/>`).join("");
+  const html = `<svg width="${2 * r}" height="${2 * r}" viewBox="0 0 ${2 * r} ${2 * r}">${lines}` +
+    `<circle cx="${r}" cy="${r}" r="4"/></svg>`;
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
+/** Searched coordinates: a crosshair target. */
+export function targetElement(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "gs-target";
+  el.setAttribute("role", "img");
+  el.setAttribute("aria-label", "Searched location");
+  el.innerHTML = '<svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">' +
+    '<circle cx="24" cy="24" r="14"/><circle cx="24" cy="24" r="3" class="gs-target-dot"/>' +
+    '<path d="M24 2v10M24 36v10M2 24h10M36 24h10"/></svg>';
+  return el;
+}
