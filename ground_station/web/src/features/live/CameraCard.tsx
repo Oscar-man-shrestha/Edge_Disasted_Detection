@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { previewUrl } from "../../lib/api";
 import { useServerNow } from "../../hooks/useServerNow";
 import { useLive } from "../../store/live";
+import { TYPE_BG } from "../../ui/Badge";
 import { DialogContent, DialogRoot, DialogTrigger } from "../../ui/Dialog";
 import { Panel, PanelHeader } from "../../ui/Panel";
 
@@ -10,6 +11,8 @@ export const PREVIEW_STALE_S = 5;
 
 export function CameraCard() {
   const preview = useLive((s) => s.preview);
+  const pipeline = useLive((s) => s.telemetry?.pipeline);
+  const seeing = pipeline?.state === "active" ? (pipeline.detections ?? []) : [];
   const now = useServerNow(500);
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
@@ -30,6 +33,15 @@ export function CameraCard() {
         : <div className="grid h-full place-items-center p-4 text-center text-xs text-muted">Waiting for the first camera preview…</div>}
       {preview?.stage2 && !stale && (
         <span className="absolute left-2 top-2 rounded-md bg-fire px-2 py-0.5 text-[10px] font-extrabold tracking-wider text-white shadow">YOLO ACTIVE</span>
+      )}
+      {seeing.length > 0 && !stale && (
+        <div className="absolute bottom-2 left-2 flex flex-wrap gap-1" aria-label="Detected now">
+          {seeing.map((d) => (
+            <span key={d.type} className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white shadow ${TYPE_BG[d.type] ?? "bg-surface-3"}`}>
+              {d.type} {Math.round(d.conf * 100)}%
+            </span>
+          ))}
+        </div>
       )}
       {stale && <div className="absolute inset-0 grid place-items-center bg-black/55 text-sm font-bold tracking-widest text-warn">STALE</div>}
     </div>

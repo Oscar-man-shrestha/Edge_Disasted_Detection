@@ -60,6 +60,8 @@ IMG_SIZE = 640                 # must match the imgsz used for TensorRT/ONNX exp
 # 0 = off (whole downscaled frame only).
 TILES = int(os.environ.get("EDGE_TILES", "0"))
 TILE_OVERLAP = 0.2
+# With tiling on, also tile the fire/smoke model (small or distant fires). ~+2 fire-model runs.
+TILE_FIRE = _env_bool("EDGE_TILE_FIRE", True)
 # After Stage 2 has confirmed something, run it only on every Nth triggered frame
 # while detections keep coming. 1 = run on every triggered frame (old behaviour).
 STAGE2_EVERY_N_WHILE_CONFIRMED = int(os.environ.get("EDGE_STAGE2_EVERY_N", "3"))

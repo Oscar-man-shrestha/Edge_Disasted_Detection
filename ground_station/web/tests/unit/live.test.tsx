@@ -36,3 +36,22 @@ it("fresh preview with stage 2 shows YOLO ACTIVE", () => {
   expect(screen.getByText("YOLO ACTIVE")).toBeInTheDocument();
   expect(screen.queryByText("STALE")).toBeNull();
 });
+
+describe("camera card: what the AI sees now", () => {
+  it("shows a chip for every detected type while Stage 2 is active, none when idle", async () => {
+    const { render: r, screen: sc } = await import("@testing-library/react");
+    const { CameraCard } = await import("../../src/features/live/CameraCard");
+    const { useLive: live } = await import("../../src/store/live");
+    const { state: st } = await import("../fixtures/data");
+    const base = st();
+    const tel = (pipeline: any) => live.getState().hydrate({ ...base, telemetry: { ...base.telemetry!, pipeline } });
+    tel({ state: "active", detections: [{ type: "person", conf: 0.9, t: 1 }, { type: "fire", conf: 0.72, t: 1 }] });
+    const { unmount } = r(<CameraCard />);
+    expect(sc.getByText("person 90%")).toBeInTheDocument();
+    expect(sc.getByText("fire 72%")).toBeInTheDocument();
+    unmount();
+    tel({ state: "scanning", detections: [{ type: "fire", conf: 0.72, t: 1 }] });
+    r(<CameraCard />);
+    expect(sc.queryByText("fire 72%")).toBeNull();
+  });
+});

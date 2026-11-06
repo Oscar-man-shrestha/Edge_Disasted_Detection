@@ -69,13 +69,13 @@ class Stage2Detector:
             })
         return out
 
-    def _tiled_people(self, frame, full):
-        """People in full-resolution tiles, boxes mapped back to `frame` pixels. A person
+    def _tiled(self, model, frame, full, classes=None):
+        """Detections in full-resolution tiles, boxes mapped back to `frame` pixels. Something
         far away is ~2x bigger in a tile than in the downscaled frame: about 1.8x the range."""
         sx, sy = frame.shape[1] / full.shape[1], frame.shape[0] / full.shape[0]
         out = []
         for x0, y0, x1, y1 in tile_boxes(full.shape[1], full.shape[0], config.TILES, config.TILE_OVERLAP):
-            for d in self._run(self.person_model, full[y0:y1, x0:x1], classes=[0]):
+            for d in self._run(model, full[y0:y1, x0:x1], classes=classes):
                 b = d["box"]
                 d["box"] = [(b[0] + x0) * sx, (b[1] + y0) * sy, (b[2] + x0) * sx, (b[3] + y0) * sy]
                 out.append(d)
@@ -83,13 +83,18 @@ class Stage2Detector:
 
     def detect(self, frame, full=None):
         """frame: the downscaled pipeline frame. full: the camera frame at full resolution;
-        with EDGE_TILES >= 2 people are also searched in tiles of it (longer range)."""
+        with EDGE_TILES >= 2 people (and fire/smoke with EDGE_TILE_FIRE) are also searched in
+        tiles of it (longer range)."""
         t0 = time.perf_counter()
+        tiled = config.TILES >= 2 and full is not None and full.shape[1] > frame.shape[1]
         dets = self._run(self.person_model, frame, classes=[0])   # COCO class 0 = person
-        if config.TILES >= 2 and full is not None and full.shape[1] > frame.shape[1]:
-            dets = merge_dets(dets + self._tiled_people(frame, full))
+        if tiled:
+            dets = merge_dets(dets + self._tiled(self.person_model, frame, full, classes=[0]))
         if self.fire_model is not None:
-            dets += self._run(self.fire_model, frame)
+            fire = self._run(self.fire_model, frame)
+            if tiled and config.TILE_FIRE:
+                fire = merge_dets(fire + self._tiled(self.fire_model, frame, full))
+            dets += fire
         ms = (time.perf_counter() - t0) * 1000
         return dets, ms
 

@@ -27,6 +27,8 @@ export interface Pipeline {
   state?: "idle" | "scanning" | "active"; fps?: number | null; frames?: number; stage1_ms?: number | null;
   stage2_ms?: number | null; stage2_runs?: number; stage2_skipped?: number; triggers?: number;
   last_detection?: { type: AlertType; conf: number; t: number } | null;
+  /** strongest detection of each type in the latest Stage 2 run */
+  detections?: { type: AlertType; conf: number; t: number }[];
 }
 export interface SystemStats {
   power_mw?: number | null; cpu_temp_c?: number | null; gpu_temp_c?: number | null;

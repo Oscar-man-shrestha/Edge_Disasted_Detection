@@ -293,3 +293,18 @@ def test_sim_remote_ignored_by_a_real_gps(tmp_config, fast_link, station, monkey
         assert calls == []
     finally:
         link.stop()
+
+
+def test_telemetry_lists_every_detected_type_not_just_the_strongest():
+    """A person at 90 % must not hide a fire at 70 % in telemetry."""
+    from link import LinkState
+    st = LinkState()
+    st.frame(FRAME, GATE, ran_stage2=True, stage2_ms=100.0, t=1.0)
+    st.detections([{"type": "person", "conf": .9, "box": [0, 0, 1, 1]},
+                   {"type": "person", "conf": .6, "box": [0, 0, 1, 1]},
+                   {"type": "fire", "conf": .7, "box": [0, 0, 1, 1]}], time.time())
+    snap = st.snapshot()
+    assert snap["last_detection"]["type"] == "person"                         # unchanged field
+    assert [(d["type"], d["conf"]) for d in snap["detections"]] == [("person", 0.9), ("fire", 0.7)]
+    st.detections([], time.time())
+    assert st.snapshot()["detections"] == []

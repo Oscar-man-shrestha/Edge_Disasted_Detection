@@ -99,14 +99,20 @@ class LinkState:
             if len(self._times) >= 2 and self._times[-1] > self._times[0]:
                 fps = round((len(self._times) - 1) / (self._times[-1] - self._times[0]), 2)
             last = None
+            per_type = {}                      # strongest detection of EACH type in the last run
+            for d in self.dets:
+                if d["type"] not in per_type or d["conf"] > per_type[d["type"]]["conf"]:
+                    per_type[d["type"]] = d
             if self.dets:
                 best = max(self.dets, key=lambda d: d["conf"])
                 last = {"type": best["type"], "conf": round(best["conf"], 3), "t": self.dets_time}
+            detections = [{"type": d["type"], "conf": round(d["conf"], 3), "t": self.dets_time}
+                          for d in sorted(per_type.values(), key=lambda d: -d["conf"])]
             return {"state": st, "fps": fps, "frames": self.frames,
                     "stage1_ms": None if self.stage1_ms is None else round(self.stage1_ms, 1),
                     "stage2_ms": None if self.stage2_ms is None else round(self.stage2_ms, 1),
                     "stage2_runs": self.stage2_runs, "stage2_skipped": self.stage2_skipped,
-                    "triggers": self.triggers, "last_detection": last}
+                    "triggers": self.triggers, "last_detection": last, "detections": detections}
 
 
 # --------------------------------------------------------------------------- discovery

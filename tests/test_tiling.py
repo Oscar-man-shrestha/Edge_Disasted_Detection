@@ -83,3 +83,25 @@ def test_without_a_full_frame_it_works_as_before(monkeypatch):
     d = detector()
     d.detect(small)
     assert len(d.person_model.calls) == 1
+
+
+class FakeFire(FakeModel):
+    def predict(self, img, **kw):
+        r = super().predict(img, **kw)[0]
+        r.names = {0: "fire"}
+        return [r]
+
+
+def test_small_far_fire_found_with_fire_tiling(monkeypatch):
+    full, small = scene()                              # same tiny bright blob, now "a fire"
+    monkeypatch.setattr(config, "TILES", 2)
+    d = Stage2Detector.__new__(Stage2Detector)
+    d.person_model, d.fire_model = FakeModel(), FakeFire()
+    monkeypatch.setattr(config, "TILE_FIRE", False)
+    types = [x["type"] for x in d.detect(small, full=full)[0]]
+    assert types == ["person"]                         # fire model only saw the small frame
+    monkeypatch.setattr(config, "TILE_FIRE", True)
+    d.fire_model = FakeFire()
+    types = sorted(x["type"] for x in d.detect(small, full=full)[0])
+    assert types == ["fire", "person"]
+    assert len(d.fire_model.calls) == 3                # whole frame + 2 tiles
