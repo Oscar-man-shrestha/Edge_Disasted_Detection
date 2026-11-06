@@ -334,6 +334,6 @@ Defaults in the code stay slow (weak radio links in the field).
 **Regression found and fixed:** power showed "None" after the container started running as `eshaan`:
 the Nano's power sensor files (`in_power*_input`, `rail_name_*`) are root-only. The service (root) now makes
 those **read-only values** readable at every start (`ExecStartPre=-...chmod a+r`; the `-` means a failure can
-never stop the service). Re-installed with `sudo jetson/install_service.sh`.
+never stop the service). Re-installed with `sudo jetson/install_service.sh`. Verified: power back on the dashboard (**2.58 W** at 3.75 fps, 10 % CPU, 32 °C).
 
 **Mac:** `.link_key` added; tests: **131 Python + 70 dashboard** pass; dashboard rebuilt.
