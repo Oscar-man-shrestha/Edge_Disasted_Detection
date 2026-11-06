@@ -421,3 +421,11 @@ Fix (software only):
   for still or distant targets a motion gate can never see. It adds no runs while Stage 2 is busy anyway.
 - Tests: 145 Python (3 new scheduler tests). Smoke map icon also redrawn as rising wisps (clearer than a cloud).
 Before: 2.4–2.6 W, 31 °C, YOLO on 1.4 % of frames. After: see below.
+**After** (measured 14:07–14:10, camera turned to face the room; the earlier "range" tests had the camera pointing
+at a wall ~1 m away, low on the desk, so nothing farther than an arm was ever in view):
+- Person detected **continuously for 3 minutes**, at every position, standing still included:
+  ~1 m 91–95 % · ~3 m 88–93 % · **far wall / door ~5–6 m 76–85 %** · partly behind the table 46–80 %.
+- At ~6 m the person is ~70 px tall in the 640×360 frame; ~20 px is the usual limit for YOLOv8n, so the estimated
+  reliable range side-on is **~20 m** (more with 1280 px tiling or a narrower lens). Not yet measured outdoors.
+- Cost of the scan: power avg **2.9 W** (peak 3.85 W) vs 2.4–2.6 W before; **33.5 °C**. YOLO now runs ~0.7×/s.
+- Lesson: aim the camera at open space at about chest height when testing.
