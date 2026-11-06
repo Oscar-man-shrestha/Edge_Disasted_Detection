@@ -394,3 +394,17 @@ an hour the drone stood still and every alert stacked at one spot.
 - Verified live: **76 m in 15 s, 5 m/s, heading 0° up the first lane**; dashboard shows the quadcopter flying.
   Camera + AI stay real: detections are tagged with the drone's simulated position along the route.
 - Note: the track from before the switch still shows the old route; start a **New mission** for a clean map.
+
+### 27. Simulator remote (temporary manual control of the SIMULATED drone)
+Dashboard card **Simulator remote** (left column, under Flight; on a phone inside the Flight sheet), shown only
+while the drone reports a simulated GPS.
+- **Auto patrol** / **Manual**. Manual starts from the drone's current heading and speed.
+  Buttons or keys: **← →** turn 15°, **↑ ↓** speed ±1 m/s (0–15), **space** hover.
+- **Back to Auto:** the drone flies straight back to the nearest point of the survey route, then carries on
+  patrolling from there: no jump on the map (tested: no step faster than the speed).
+- Path: dashboard → `POST /api/sim` → the station repeats the latest command in every telemetry reply →
+  drone (`link.py`) → `GPSSim.control()`. About 1 s delay. Each command has an id and is applied once.
+- **Safety:** applied only when `EDGE_GPS=sim`. With a real GPS (NMEA / MAVLink) the drone ignores it,
+  even if a command arrives (test). It never talks to motors or a flight controller.
+- Battery: a few bytes once a second on a reply that is sent anyway: nothing measurable.
+- Tests: 142 Python (incl. end-to-end dashboard→station→drone), 98 UI.

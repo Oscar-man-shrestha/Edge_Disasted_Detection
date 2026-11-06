@@ -250,3 +250,46 @@ def test_sample_interval_from_env(monkeypatch):
         monkeypatch.delenv("EDGE_SAMPLE_SEC", raising=False)
         importlib.reload(config)
     assert config.SAMPLE_INTERVAL_SEC == 0.5
+
+
+def test_sim_remote_steers_a_simulated_drone_end_to_end(tmp_config, fast_link, station, monkeypatch):
+    """Dashboard -> station -> telemetry reply -> drone: the simulated drone turns and speeds up."""
+    from gps_sim import GPSSim
+    from link import DroneLink, LinkState, StationFinder
+    monkeypatch.setattr(config, "GPS_MODE", "sim")
+    state = LinkState()
+    state.frame(FRAME, GATE, ran_stage2=False, t=10.0)
+    gps = GPSSim()
+    c = station.test_client()
+    assert c.post("/api/sim", json={"mode": "manual", "heading": 90, "speed": 7}).status_code == 200
+    link = DroneLink(state, gps, StationFinder(fixed_url=station.url)).start()
+    try:
+        live = station.config["LIVE"]
+        assert wait_for(lambda: (live["telemetry"] or {}).get("gps", {}).get("control") == "manual")
+        g = live["telemetry"]["gps"]
+        assert g["course_deg"] == 90 and g["speed_mps"] == 7
+    finally:
+        link.stop()
+
+
+def test_sim_remote_ignored_by_a_real_gps(tmp_config, fast_link, station, monkeypatch):
+    """A drone on a real GPS must never apply simulator commands."""
+    from link import DroneLink, LinkState, StationFinder
+    monkeypatch.setattr(config, "GPS_MODE", "nmea")
+    calls = []
+
+    class RealGPS:                             # has control() by accident: must still be ignored
+        def status(self, t=None):
+            return {"mode": "nmea", "fix": True, "lat": 1.0, "lon": 2.0}
+
+        def control(self, *a):
+            calls.append(a)
+
+    station.test_client().post("/api/sim", json={"mode": "manual", "heading": 90, "speed": 7})
+    link = DroneLink(LinkState(), RealGPS(), StationFinder(fixed_url=station.url)).start()
+    try:
+        assert wait_for(lambda: station.config["LIVE"]["telemetry"] is not None)
+        time.sleep(0.3)
+        assert calls == []
+    finally:
+        link.stop()

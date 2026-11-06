@@ -13,6 +13,7 @@ import { MissionMap } from "../map/MissionMap";
 import { ErrorBoundary } from "../shell/ErrorBoundary";
 import { CameraCard } from "./CameraCard";
 import { FlightHud } from "./FlightHud";
+import { SimRemote } from "./SimRemote";
 
 export default function LiveView() {
   const telemetry = useLive((s) => s.telemetry);
@@ -52,6 +53,7 @@ export default function LiveView() {
       <div className="pointer-events-none absolute inset-y-3 left-3 hidden w-[330px] flex-col gap-3 overflow-y-auto md:flex">
         <div className="pointer-events-auto"><ErrorBoundary name="Camera"><CameraCard /></ErrorBoundary></div>
         <div className="pointer-events-auto"><ErrorBoundary name="Flight"><FlightHud /></ErrorBoundary></div>
+        <div className="pointer-events-auto"><ErrorBoundary name="Remote"><SimRemote /></ErrorBoundary></div>
       </div>
       <Panel className="absolute inset-y-3 right-[60px] hidden w-[380px] overflow-hidden lg:flex lg:flex-col">
         <ErrorBoundary name="Alerts"><AlertDrawer /></ErrorBoundary>
@@ -70,7 +72,7 @@ export default function LiveView() {
           <DialogContent side="bottom" title={sheet === "camera" ? "Camera" : sheet === "flight" ? "Flight" : "Alerts"}>
             <div className="flex max-h-[70vh] min-h-[40vh] flex-col">
               {sheet === "camera" && <CameraCard />}
-              {sheet === "flight" && <FlightHud />}
+              {sheet === "flight" && <><FlightHud /><SimRemote /></>}
               {sheet === "alerts" && <AlertDrawer />}
             </div>
           </DialogContent>

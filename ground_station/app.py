@@ -86,7 +86,9 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
     store.current_mission()                       # spec: a mission is open from startup
     bus = EventBus()
     live = {"telemetry": None, "received_at": None, "preview_jpeg": None,
-            "preview_t": None, "preview_stage2": False, "preview_received_at": None}
+            "preview_t": None, "preview_stage2": False, "preview_received_at": None,
+            "sim": None}                          # simulator remote: latest command for the drone
+    sim_ids = {"boot": "%x" % int(time.time()), "seq": 0}
     app.config.update(STORE=store, BUS=bus, LIVE=live, DATA_DIR=data_dir, SNAP_DIR=snap_dir)
     app.register_blueprint(tiles_blueprint(os.path.join(data_dir, "tiles"), fetch=tile_fetch))
     app.register_blueprint(tiles_blueprint(os.path.join(data_dir, "terrain"),
@@ -123,6 +125,8 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
                                   gps["lat"], gps["lon"], gps.get("alt_m"))
         store.add_telemetry_sample(body.get("drone_id") or "drone", live["received_at"], body)
         bus.publish("telemetry", {"telemetry": body})
+        if live["sim"] is not None:                # simulator remote rides back on the reply
+            return jsonify(ok=True, sim=live["sim"])
         return jsonify(ok=True)
 
     @app.route("/api/preview", methods=["POST"])
@@ -175,6 +179,28 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
         bus.publish("alert", {"alert": alert})
         return jsonify(ok=True)
 
+    @app.route("/api/sim", methods=["POST"])
+    def sim_control():
+        """Simulator remote from the dashboard: steer the SIMULATED drone. The drone picks the
+        latest command up from its next telemetry reply (about once a second). Drones with a
+        real GPS ignore it; only the simulated position moves."""
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or body.get("mode") not in ("auto", "manual"):
+            return jsonify(error="mode must be 'auto' or 'manual'"), 400
+        cmd = {"mode": body["mode"]}
+        if body["mode"] == "manual":
+            try:
+                cmd["heading"] = round(float(body.get("heading", 0)) % 360.0, 1)
+                cmd["speed"] = round(min(15.0, max(0.0, float(body.get("speed", 5)))), 1)
+            except (TypeError, ValueError):
+                return jsonify(error="heading and speed must be numbers"), 400
+        sim_ids["seq"] += 1
+        cmd["id"] = "%s:%d" % (sim_ids["boot"], sim_ids["seq"])
+        cmd["t"] = time.time()
+        live["sim"] = cmd
+        bus.publish("sim", {"sim": cmd})
+        return jsonify(ok=True, sim=cmd)
+
     @app.route("/api/clip", methods=["POST"])
     def receive_clip():
         """Short alert clip from the drone: JPEG frames 000.jpg.. for an alert it already sent."""
@@ -221,7 +247,7 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
         return jsonify(server_time=time.time(), mission=m, missions=store.missions(),
                        link=link_state(live, time.time()), telemetry=live["telemetry"],
                        preview=_preview_meta(), alerts=_sorted(store.alerts(m["id"])),
-                       track=store.track(m["id"]))
+                       track=store.track(m["id"]), sim=live["sim"])
 
     @app.route("/api/stream")
     def stream():

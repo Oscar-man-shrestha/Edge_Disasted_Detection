@@ -251,9 +251,23 @@ class DroneLink:
             h["X-Link-Key"] = config.LINK_KEY
         return h
 
+    def _sim_t(self):
+        return self.state.t if self.state.t is not None else time.time() - self.state.started
+
+    def _apply_sim(self, reply):
+        """Simulator remote: steer the SIMULATED GPS only (EDGE_GPS=sim). A real GPS, NMEA or
+        MAVLink, is never touched, whatever the station sends."""
+        cmd = reply.get("sim") if isinstance(reply, dict) else None
+        if cmd is None or config.GPS_MODE != "sim" or not hasattr(self.gps, "control"):
+            return
+        try:
+            self.gps.control(cmd, self._sim_t())
+        except Exception:                          # a bad command must not break the link
+            pass
+
     def _gps_status(self):
         try:
-            t = self.state.t if self.state.t is not None else time.time() - self.state.started
+            t = self._sim_t()
             try:
                 return self.gps.status(t)
             except TypeError:
@@ -277,6 +291,10 @@ class DroneLink:
                           timeout=(config.FORWARD_CONNECT_TIMEOUT, 2))
         if r.status_code != 200:
             raise RuntimeError("HTTP %d" % r.status_code)
+        try:
+            self._apply_sim(r.json())
+        except ValueError:                         # older station: empty / non-JSON reply
+            pass
 
     def _send_preview(self, requests, url, store):
         frame, dets, active, frame_time = self.state.preview_source()

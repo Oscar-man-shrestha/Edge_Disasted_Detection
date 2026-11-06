@@ -62,3 +62,61 @@ def test_loop_course_follows_the_lanes(tmp_config):
 def test_default_still_flies_once_and_holds(tmp_config):
     g = GPSSim()
     assert g.status(1e6)["speed_mps"] == 0.0
+
+
+# ---- simulator remote (manual steering from the ground station)
+def man(seq, heading, speed):
+    return {"id": "s:%d" % seq, "mode": "manual", "heading": heading, "speed": speed}
+
+
+def test_manual_steering_moves_from_where_the_drone_is(tmp_config):
+    g = GPSSim(path_csv=SURVEY, loop=True)
+    here = g.position(20)                                        # on the first lane, going north
+    g.control(man(1, 90, 4.0), 20)                               # take over: east at 4 m/s
+    lat, lon = g.position(30)                                    # 10 s later
+    assert lat == pytest.approx(here[0], abs=1e-7)
+    assert GPSSim._dist(here, (lat, lon)) == pytest.approx(40, abs=0.5)
+    assert lon > here[1]
+    st = g.status(30)
+    assert st["control"] == "manual" and st["course_deg"] == 90 and st["speed_mps"] == 4.0
+    g.control(man(2, 0, 0.0), 30)                                # stop: hover in place
+    assert g.position(60) == pytest.approx((lat, lon))
+    assert g.status(60)["speed_mps"] == 0.0
+
+
+def test_same_command_twice_is_applied_once(tmp_config):
+    g = GPSSim(path_csv=SURVEY, loop=True)
+    g.control(man(1, 90, 5.0), 0)
+    g.position(10)
+    g.control(man(1, 90, 5.0), 10)                               # repeated in every telemetry reply
+    p = g.position(20)
+    assert GPSSim._dist(g.pts[0], p) == pytest.approx(100, abs=0.5)
+
+
+def test_resume_flies_back_to_the_route_then_patrols_without_a_jump(tmp_config):
+    g = GPSSim(path_csv=SURVEY, loop=True)
+    g.control(man(1, 270, 5.0), 0)                               # 100 m west, off the route
+    off = g.position(20)
+    g.control({"id": "s:2", "mode": "auto"}, 20)
+    assert g.status(20)["control"] == "return"
+    prev, t = off, 20.0
+    while g.status(t)["control"] == "return" and t < 200:        # no step faster than the speed
+        t += 0.5
+        cur = g.position(t)
+        assert GPSSim._dist(prev, cur) <= 5.0 * 0.5 + 1e-6
+        prev = cur
+    assert g.status(t)["control"] == "auto"
+    for _ in range(40):                                          # and patrol continues smoothly
+        t += 0.5
+        cur = g.position(t)
+        assert GPSSim._dist(prev, cur) <= 5.0 * 0.5 + 1e-6
+        prev = cur
+
+
+def test_bad_commands_are_ignored_and_clamped(tmp_config):
+    g = GPSSim(path_csv=SURVEY, loop=True)
+    g.control({"id": "s:1", "mode": "fly-me-to-the-moon"}, 0)
+    assert g.status(0)["control"] == "auto"
+    g.control(man(2, 450, 99), 0)                                 # heading wraps, speed capped
+    st = g.status(0)
+    assert st["course_deg"] == 90 and st["speed_mps"] == 15.0

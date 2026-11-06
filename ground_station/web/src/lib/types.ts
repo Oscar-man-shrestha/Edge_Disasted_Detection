@@ -20,6 +20,8 @@ export interface Mission {
 export interface Gps {
   mode?: string; fix?: boolean | null; lat?: number | null; lon?: number | null; alt_m?: number | null;
   sats?: number | null; hdop?: number | null; speed_mps?: number | null; course_deg?: number | null; age_s?: number | null;
+  /** simulated GPS only: who is flying it */
+  control?: "auto" | "manual" | "return";
 }
 export interface Pipeline {
   state?: "idle" | "scanning" | "active"; fps?: number | null; frames?: number; stage1_ms?: number | null;

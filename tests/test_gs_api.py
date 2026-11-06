@@ -310,3 +310,22 @@ def test_clip_needs_link_key(tmp_path):
     assert post_alert(c, headers=ok).status_code == 200
     assert post_clip(c).status_code == 401
     assert post_clip(c, headers=ok).status_code == 200
+
+
+def test_sim_remote_command_reaches_the_drone_in_the_telemetry_reply(client):
+    assert client.post("/api/telemetry", json=TELEM).get_json().get("sim") is None   # nothing set yet
+    r = client.post("/api/sim", json={"mode": "manual", "heading": 450, "speed": 99})
+    assert r.status_code == 200
+    cmd = r.get_json()["sim"]
+    assert cmd["mode"] == "manual" and cmd["heading"] == 90 and cmd["speed"] == 15
+    reply = client.post("/api/telemetry", json=TELEM).get_json()
+    assert reply["sim"] == cmd                                        # repeated every second
+    assert client.get("/api/state").get_json()["sim"] == cmd
+    again = client.post("/api/sim", json={"mode": "auto"}).get_json()["sim"]
+    assert again["mode"] == "auto" and again["id"] != cmd["id"]       # a new command, new id
+
+
+def test_sim_remote_rejects_bad_input(client):
+    assert client.post("/api/sim", json={"mode": "warp"}).status_code == 400
+    assert client.post("/api/sim", json={"mode": "manual", "heading": "north"}).status_code == 400
+    assert client.post("/api/sim", data="x").status_code == 400
