@@ -19,3 +19,6 @@ ground_station/received/
 ground_station/web/node_modules/
 ground_station/web/test-results/
 ground_station/web/playwright-report/
+
+# Ultralytics settings written by the Jetson container
+.ultralytics/

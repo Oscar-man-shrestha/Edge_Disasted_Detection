@@ -222,7 +222,42 @@ Note: 3.25 of 3.9 GB RAM are used once both TensorRT engines are loaded. It's st
 - Fix: `create_app` now makes the data folder absolute. New test `test_snapshot_served_with_relative_data_dir`
   failed before the fix, passes after; full suite **113 passed**. Station restarted; all 5 thumbnails load ✅.
 
+### 16. Review: bugs and weak spots, and what was fixed
+Software only, inside the project folder. No firmware, power or system settings touched.
+
+| # | Problem | Fix | Verified |
+|---|---|---|---|
+| 1 | Snapshot names `fire_3193.1s.jpg` used seconds-since-start, which restart at 0 each run: a new alert could **overwrite an older (maybe unsent) alert's photo** | name now starts with the alert's database id: `12_fire_3193.1s.jpg` (always unique) | new test failed before, passes after |
+| 2 | Alert times had no timezone (container clock was UTC, the Mac shows IST) | `wall_time` now ends in the UTC offset, e.g. `2026-11-06 08:19:22 +0530` | new test |
+| 3 | Container clock ≠ Nano clock | `run_docker.sh` mounts the Nano's `/etc/localtime` (a `TZ=` name fell back to UTC: the image has no zoneinfo, so it was removed) | container `22:21 -0500` = host |
+| 4 | Docker wrote files as **root** (snapshots, `alerts.db`, engines): couldn't delete them without sudo | container runs as the **owner of the repo** (`eshaan`), with the `video` (camera, GPU), `dialout` (GPS serial) and `i2c` (power sensor) groups; same under sudo or the boot service. `EDGE_DOCKER_ROOT=1` = old behaviour. 40 old root-owned files handed back to eshaan | `ps` shows `eshaan python3 run_pipeline.py`, camera + CUDA OK |
+| 5 | Ultralytics made a new settings file every run and may try the internet | `YOLO_OFFLINE=1`, settings kept in `.ultralytics/` (git-ignored) | live run starts and works |
+| 6 | Camera preview choppy (1 image / 1.5 s) | `EDGE_PREVIEW_SEC` setting; default stays 1.5 s for weak radio links, 0.2 s floor | with `EDGE_PREVIEW_SEC=0.5`: a new preview every **~0.6 s** (was 1.5 s) |
+
+Tests: **116 passed**. Live pipeline restarted on the Nano with all fixes and `EDGE_PREVIEW_SEC=0.5`.
+
+### 17. Commands that need YOUR password (type them on the Nano, prompt `eshaan@eshaan-desktop`)
+These change Nano system settings, so only you should run them. All are safe and reversible.
+```bash
+# India time on the Nano (alerts will show +0530)
+sudo timedatectl set-timezone Asia/Kolkata
+
+# Wi-Fi country = India, so 5 GHz networks work (active after reboot)
+sudo sed -i 's/^REGDOMAIN=.*/REGDOMAIN=IN/' /etc/default/crda
+
+# Free the GPS serial port (pins 8/10) from the console service
+sudo systemctl disable --now nvgetty
+
+# Autostart the drone software at power-on (also sets full-speed clocks at every boot)
+sudo jetson/install_service.sh
+
+sudo reboot
+```
+Undo autostart any time: `sudo systemctl disable --now edge-drone`.
+The autostart settings live in `/etc/default/edge-drone` (TensorRT engines, webcam, station found automatically,
+`EDGE_GPS=nmea`: alerts say "no GPS fix" until the M8N is wired, the pipeline keeps running).
+
 ### Next
-1. **GPS:** NEO-M8N via a USB-TTL adapter (CP2102/CH340/FTDI) or the 40-pin header UART, then `EDGE_GPS=nmea`.
-2. Autostart on boot (`jetson/install_service.sh`, needs sudo once).
+1. **GPS:** send close-up photos of the M8N's 6-pin connector (wire colours) before wiring; then 4 wires to pins 2/6/8/10.
+2. **Field test** over the Nano's own hotspot (DRONE-EDGE) instead of the USB cable.
 3. Change the Nano password (`passwd`).

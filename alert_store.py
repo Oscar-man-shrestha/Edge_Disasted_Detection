@@ -33,19 +33,24 @@ class AlertStore:
 
         if lat is not None and math.isnan(lat):    # no GPS fix: store NULL, not NaN
             lat = lon = None
-        snap = os.path.join(config.SNAPSHOT_DIR, f"{typ}_{t_sec:.1f}s.jpg")
+        # wall_time carries the UTC offset: the container clock may be UTC while the
+        # ground station shows local time.
+        cur = self.db.execute(
+            "INSERT INTO alerts (video_time, wall_time, type, conf, lat, lon, snapshot, priority) "
+            "VALUES (?,?,?,?,?,?,NULL,?)",
+            (t_sec, time.strftime("%Y-%m-%d %H:%M:%S %z"), typ, det["conf"],
+             lat, lon, PRIORITY.get(typ, 9)))
+        aid = cur.lastrowid
+        # The row id makes the name unique: t_sec restarts at 0 on every run, so
+        # "<type>_<t>s.jpg" alone could overwrite an older, still unsent alert's photo.
+        snap = os.path.join(config.SNAPSHOT_DIR, f"{aid}_{typ}_{t_sec:.1f}s.jpg")
         img = frame.copy()
         x1, y1, x2, y2 = [int(v) for v in det["box"]]
         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        cv2.imwrite(snap, img)
-
-        cur = self.db.execute(
-            "INSERT INTO alerts (video_time, wall_time, type, conf, lat, lon, snapshot, priority) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (t_sec, time.strftime("%Y-%m-%d %H:%M:%S"), typ, det["conf"],
-             lat, lon, snap, PRIORITY.get(typ, 9)))
+        if cv2.imwrite(snap, img):
+            self.db.execute("UPDATE alerts SET snapshot=? WHERE id=?", (snap, aid))
         self.db.commit()
-        return cur.lastrowid
+        return aid
 
     def counts(self):
         r = self.db.execute("SELECT COALESCE(SUM(sent=0),0), COALESCE(SUM(sent=1),0) "

@@ -84,7 +84,10 @@ DRONE_ID = os.environ.get("EDGE_DRONE_ID", socket.gethostname())
 LINK_KEY = os.environ.get("EDGE_LINK_KEY", "")      # must match GS_LINK_KEY if the station sets one
 DISCOVERY_PORT = 5005                               # UDP beacon port of the ground station
 TELEMETRY_INTERVAL_SEC = 1.0
-PREVIEW_INTERVAL_SEC = 1.5
+# 1.5 s suits a weak radio link. On the USB cable or a strong hotspot use e.g.
+# EDGE_PREVIEW_SEC=0.5 (one preview per sampled frame; faster than SAMPLE_INTERVAL_SEC
+# only repeats the same frame).
+PREVIEW_INTERVAL_SEC = max(0.2, float(os.environ.get("EDGE_PREVIEW_SEC", "1.5")))
 PREVIEW_WIDTH = 480
 PREVIEW_QUALITY = 60
 ALERT_FORWARD_INTERVAL_SEC = 2.0

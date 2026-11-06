@@ -208,3 +208,16 @@ def test_beacon_without_port_falls_back_to_5050():
     f = StationFinder(port=free_udp_port())
     f._on_beacon("10.42.0.20", {"service": "edge-gs", "v": 1}, now=100.0)
     assert f.url(now=100.5) == "http://10.42.0.20:5050"
+
+
+def test_preview_interval_from_env(monkeypatch):
+    import importlib
+    monkeypatch.setenv("EDGE_PREVIEW_SEC", "0.5")
+    try:
+        assert importlib.reload(config).PREVIEW_INTERVAL_SEC == 0.5
+        monkeypatch.setenv("EDGE_PREVIEW_SEC", "0.01")              # floor: never flood the link
+        assert importlib.reload(config).PREVIEW_INTERVAL_SEC == 0.2
+    finally:
+        monkeypatch.delenv("EDGE_PREVIEW_SEC")
+        importlib.reload(config)
+    assert config.PREVIEW_INTERVAL_SEC == 1.5
