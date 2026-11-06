@@ -6,7 +6,7 @@ const LETTER: Record<AlertType, string> = { person: "P", fire: "F", smoke: "S" }
 const ICON: Record<AlertType, string> = {
   fire: '<path d="M12 2c1 3.2-1.6 4.6-1.6 7.4 0 1.4.9 2.4 2 2.4s1.9-1 1.9-2.3c2.3 1.6 3.7 4 3.7 6.5A6 6 0 0 1 12 22a6 6 0 0 1-6-6c0-4.6 3.6-6.8 6-14Z"/>',
   person: '<circle cx="12" cy="6" r="3.2"/><path d="M6 21v-5.5A4.5 4.5 0 0 1 10.5 11h3a4.5 4.5 0 0 1 4.5 4.5V21Z"/>',
-  smoke: '<path d="M7.5 18.5a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.6-1.2A4.2 4.2 0 0 1 17 18.5Z"/><path d="M6 21h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>',
+  smoke: '<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 21c-2.2-2.6 2.2-4.4 0-7s2.2-4.4 0-7"/><path d="M12 21c-2.2-2.6 2.2-4.4 0-7s2.2-4.4 0-7s2.2-3 0-5"/><path d="M17 21c-2.2-2.6 2.2-4.4 0-7s2.2-4.4 0-7"/></g>',
 };
 const iconSvg = (t: AlertType) =>
   `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">${ICON[t]}</svg>`;
