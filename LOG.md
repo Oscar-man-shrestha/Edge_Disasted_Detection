@@ -408,3 +408,5 @@ while the drone reports a simulated GPS.
   even if a command arrives (test). It never talks to motors or a flight controller.
 - Battery: a few bytes once a second on a reply that is sent anyway: nothing measurable.
 - Tests: 142 Python (incl. end-to-end dashboard→station→drone), 98 UI.
+- **Verified live on the Nano:** "Manual, east, 8 m/s" obeyed after **1.6 s**; then heading 90°, 8 m/s, 36 m in 5 s.
+  "Auto patrol": turned back (270°) to the route, back on it after 3 s, patrolling on (180°).
