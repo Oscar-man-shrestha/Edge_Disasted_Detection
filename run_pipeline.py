@@ -51,7 +51,7 @@ try:
                 store.set_clip(aid, path, n, fps)
 
         r = gate.check(frame)
-        if not sched.should_run(r["trigger"]):
+        if not sched.should_run(r["trigger"], t):
             state.frame(frame, r, ran_stage2=False, t=t, skipped=sched.skipped)
             continue
 

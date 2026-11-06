@@ -50,27 +50,42 @@ class Stage2Scheduler:
       detections keep coming. Alerts have a cooldown anyway, so the skipped frames
       would mostly produce duplicates.
     - Stage 2 finds nothing, or Stage 1 stops triggering: back to every frame.
+    - Safety-net scan (scan_every seconds, 0 = off): run Stage 2 anyway when it has not
+      run for that long. The motion gate cannot see things that do not move or are far
+      away (a person standing still, a small distant fire); the scan still looks.
     """
 
-    def __init__(self, every_n=None):
+    def __init__(self, every_n=None, scan_every=None):
         self.every_n = max(1, every_n if every_n is not None
                            else config.STAGE2_EVERY_N_WHILE_CONFIRMED)
+        self.scan_every = config.SCAN_EVERY_SEC if scan_every is None else scan_every
         self.confirmed = False
         self.count = 0
         self.skipped = 0
+        self.scans = 0                     # Stage 2 runs started by the scan, not the gate
+        self.last_run_t = None
 
-    def should_run(self, trigger):
+    def _ran(self, t, run):
+        if run and t is not None:
+            self.last_run_t = t
+        return run
+
+    def should_run(self, trigger, t=None):
         if not trigger:
             self.confirmed = False
             self.count = 0
-            return False
+            due = (self.scan_every and t is not None and
+                   (self.last_run_t is None or t - self.last_run_t >= self.scan_every - 1e-9))
+            if due:
+                self.scans += 1
+            return self._ran(t, bool(due))
         if not self.confirmed:
-            return True
+            return self._ran(t, True)
         self.count += 1
         run = self.count % self.every_n == 0
         if not run:
             self.skipped += 1
-        return run
+        return self._ran(t, run)
 
     def update(self, dets):
         """Call after every Stage 2 run with its detections."""

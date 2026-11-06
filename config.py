@@ -41,7 +41,9 @@ FIRE_HSV_LOWER = (0, 120, 180)    # H, S, V lower bound for fire-orange
 FIRE_HSV_UPPER = (35, 255, 255)   # H, S, V upper bound
 FIRE_PIXEL_FRACTION = 0.01        # flag if >1% of frame is fire-colored
 DIFF_PIXEL_THRESHOLD = 30         # per-pixel brightness change that counts as "changed"
-DIFF_FRACTION = 0.15              # flag if >15% of pixels changed
+# flag if this share of pixels changed. 0.15 needed ~touching the camera (a person a few metres
+# away changes only a few %); 0.03 = a person walking at room/yard distance.
+DIFF_FRACTION = float(os.environ.get("EDGE_DIFF_FRACTION", "0.03"))
 # Camera-motion compensation: align the previous frame to the current one before
 # differencing, so drone movement itself does not count as "change".
 MOTION_COMPENSATION = _env_bool("EDGE_MOTION_COMP", True)
@@ -56,6 +58,9 @@ IMG_SIZE = 640                 # must match the imgsz used for TensorRT/ONNX exp
 # After Stage 2 has confirmed something, run it only on every Nth triggered frame
 # while detections keep coming. 1 = run on every triggered frame (old behaviour).
 STAGE2_EVERY_N_WHILE_CONFIRMED = int(os.environ.get("EDGE_STAGE2_EVERY_N", "3"))
+# Safety-net scan: run Stage 2 at least this often (seconds) even without motion, for still or
+# distant targets the motion gate cannot see. 0 = off (gate only, lowest power).
+SCAN_EVERY_SEC = float(os.environ.get("EDGE_SCAN_EVERY_SEC", "2.0"))
 
 # --- Device ("cpu" on laptop, "0" = first CUDA GPU on the Jetson) ---
 DEVICE = os.environ.get("EDGE_DEVICE", "cpu")

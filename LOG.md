@@ -410,3 +410,14 @@ while the drone reports a simulated GPS.
 - Tests: 142 Python (incl. end-to-end dashboard→station→drone), 98 UI.
 - **Verified live on the Nano:** "Manual, east, 8 m/s" obeyed after **1.6 s**; then heading 90°, 8 m/s, 36 m in 5 s.
   "Auto patrol": turned back (270°) to the route, back on it after 3 s, patrolling on (180°).
+
+### 28. "I have to touch the camera to get a detection" → the gate, not the camera
+Measured on the Nano: of 5,529 frames YOLO ran on only **75 (1.4 %)**. The Stage 1 motion gate only woke YOLO
+when **15 % of all pixels** changed (`DIFF_FRACTION = 0.15`). A person a few metres away covers only a few % of
+the frame, so YOLO never looked; only a hand at the lens changes 15 %.
+Fix (software only):
+- `DIFF_FRACTION` → **0.03** (env `EDGE_DIFF_FRACTION`).
+- **Safety-net scan:** Stage 2 runs at least every **2 s** even with no motion (`EDGE_SCAN_EVERY_SEC`, 0 = off),
+  for still or distant targets a motion gate can never see. It adds no runs while Stage 2 is busy anyway.
+- Tests: 145 Python (3 new scheduler tests). Smoke map icon also redrawn as rising wisps (clearer than a cloud).
+Before: 2.4–2.6 W, 31 °C, YOLO on 1.4 % of frames. After: see below.
