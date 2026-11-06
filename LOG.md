@@ -24,7 +24,7 @@ Lenovo FHD USB webcam · u-blox NEO-M8N GPS + compass · 5 V barrel power · Mac
 | Ground station on the Mac (port 5050) | ✅ running, "Waiting for drone" |
 | Nano → Mac station link over USB (`192.168.55.100:5050`) | ✅ tested |
 
-| GPS wiring | ⏳ later |
+| GPS wiring | ⏸ deferred until there is a drone to fly (simulated position meanwhile) |
 
 ---
 
@@ -257,7 +257,16 @@ Undo autostart any time: `sudo systemctl disable --now edge-drone`.
 The autostart settings live in `/etc/default/edge-drone` (TensorRT engines, webcam, station found automatically,
 `EDGE_GPS=nmea`: alerts say "no GPS fix" until the M8N is wired, the pipeline keeps running).
 
+### 18. GPS deferred
+- Decided to leave the GPS until there is a drone to fly: on a desk the position would not change anyway.
+- Everything uses the **simulated** position meanwhile (`EDGE_GPS=sim`, also the default in `jetson/edge-drone.env`).
+- What we know for later (M8N "Pixhawk-style" cable): big plug = **red 5 V, yellow, green, black GND**;
+  small plug (orange, white) = compass, not used. The spare cable's plug is a different size and does not fit.
+- Wiring plan (Nano **off**): cut the big plug, join to female jumpers, then
+  **red → pin 2, black → pin 6, green → pin 8, yellow → pin 10**. If no data: swap green/yellow (harmless).
+  Before that: `sudo systemctl disable --now nvgetty`. Then set `EDGE_GPS=nmea` in `/etc/default/edge-drone`.
+
 ### Next
-1. **GPS:** send close-up photos of the M8N's 6-pin connector (wire colours) before wiring; then 4 wires to pins 2/6/8/10.
+1. **GPS:** later, see section 18.
 2. **Field test** over the Nano's own hotspot (DRONE-EDGE) instead of the USB cable.
 3. Change the Nano password (`passwd`).
