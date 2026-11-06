@@ -2,14 +2,42 @@ import type { Alert, AlertType } from "../../lib/types";
 
 const LETTER: Record<AlertType, string> = { person: "P", fire: "F", smoke: "S" };
 
+/** Shape per type, so colour is never the only cue. Constants only (no network data in innerHTML). */
+const ICON: Record<AlertType, string> = {
+  fire: '<path d="M12 2c1 3.2-1.6 4.6-1.6 7.4 0 1.4.9 2.4 2 2.4s1.9-1 1.9-2.3c2.3 1.6 3.7 4 3.7 6.5A6 6 0 0 1 12 22a6 6 0 0 1-6-6c0-4.6 3.6-6.8 6-14Z"/>',
+  person: '<circle cx="12" cy="6" r="3.2"/><path d="M6 21v-5.5A4.5 4.5 0 0 1 10.5 11h3a4.5 4.5 0 0 1 4.5 4.5V21Z"/>',
+  smoke: '<path d="M7.5 18.5a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.6-1.2A4.2 4.2 0 0 1 17 18.5Z"/><path d="M6 21h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>',
+};
+const iconSvg = (t: AlertType) =>
+  `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">${ICON[t]}</svg>`;
+
+/** Top-down quadcopter: four spinning rotors, a forward camera cone and a scan ring.
+ *  The nose points up; the map marker rotates it to the drone's course. Pure SVG + CSS:
+ *  everything runs in the browser, nothing extra is asked of the drone. */
 export function droneElement(): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "gs-drone";
+  el.setAttribute("role", "img");
   el.setAttribute("aria-label", "Drone");
+  const rotor = (x: number, y: number, d: string) =>
+    `<g transform="translate(${x} ${y})"><circle r="11" class="gs-rotor-disc"/>` +
+    `<g class="gs-rotor gs-rotor-${d}"><rect x="-10.5" y="-1.4" width="21" height="2.8" rx="1.4"/>` +
+    `<rect x="-1.4" y="-10.5" width="2.8" height="21" rx="1.4" opacity="0.55"/></g>` +
+    `<circle r="2.2" class="gs-rotor-hub"/></g>`;
   el.innerHTML =
-    '<svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">' +
-    '<circle cx="17" cy="17" r="15" fill="rgb(57 135 229 / 0.18)" stroke="rgb(57 135 229 / 0.55)" stroke-width="1.5"/>' +
-    '<path d="M17 4 L27 28 L17 22 L7 28 Z" fill="#e8ebf1" stroke="#0d1016" stroke-width="2" stroke-linejoin="round"/></svg>';
+    '<span class="gs-drone-scan" aria-hidden="true"></span>' +
+    '<svg class="gs-drone-fov" viewBox="0 0 120 120" aria-hidden="true"><defs>' +
+    '<linearGradient id="gs-fov-g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="rgb(57 135 229 / 0.45)"/>' +
+    '<stop offset="1" stop-color="rgb(57 135 229 / 0)"/></linearGradient></defs>' +
+    '<path d="M60 60 L28 4 A64 64 0 0 1 92 4 Z" fill="url(#gs-fov-g)"/></svg>' +
+    '<svg class="gs-drone-body" viewBox="0 0 64 64" aria-hidden="true">' +
+    '<g class="gs-drone-arms"><path d="M17 17 L47 47 M47 17 L17 47"/></g>' +
+    rotor(17, 17, "cw") + rotor(47, 17, "ccw") + rotor(17, 47, "ccw") + rotor(47, 47, "cw") +
+    '<rect x="24" y="22" width="16" height="20" rx="6" class="gs-drone-hull"/>' +
+    '<path d="M32 14 L37 22 L27 22 Z" class="gs-drone-nose"/>' +
+    '<circle cx="32" cy="32" r="3" class="gs-drone-cam"/>' +
+    '<circle cx="18" cy="12" r="1.6" class="gs-led gs-led-port"/><circle cx="46" cy="12" r="1.6" class="gs-led gs-led-stbd"/>' +
+    "</svg>";
   return el;
 }
 
@@ -25,7 +53,7 @@ export function alertElement(a: Alert, selected: boolean, onClick: (id: number) 
 export function updateAlertElement(el: HTMLElement, a: Alert, selected: boolean, onClick: (id: number) => void): void {
   const cls = `gs-amark gs-amark-${a.type} gs-amark-${a.status}${selected ? " gs-amark-selected" : ""}`;
   if (el.className !== cls) el.className = cls;
-  if (el.textContent !== LETTER[a.type]) el.textContent = LETTER[a.type];
+  if (el.dataset.type !== a.type) { el.dataset.type = a.type; el.innerHTML = iconSvg(a.type); }
   el.setAttribute("aria-label", `${a.type} alert ${a.id}, ${Math.round(a.conf * 100)} percent, ${a.status}`);
   el.onclick = (e) => { e.stopPropagation(); onClick(a.id); };
 }
@@ -42,7 +70,7 @@ export function updateClusterElement(el: HTMLElement, counts: Record<AlertType, 
   el.setAttribute("aria-label", `${total} alerts here: ${counts.person} person, ${counts.fire} fire, ${counts.smoke} smoke`);
   // numbers and constants only (no network strings) in innerHTML
   const parts = (["person", "fire", "smoke"] as AlertType[]).filter((t) => counts[t] > 0)
-    .map((t) => `<span class="gs-cluster-${t}">${LETTER[t]}${Number(counts[t])}</span>`).join("");
+    .map((t) => `<span class="gs-cluster-${t}" title="${LETTER[t]}">${iconSvg(t)}${Number(counts[t])}</span>`).join("");
   const html = `<b>${Number(total)}</b><span class="gs-cluster-parts">${parts}</span>`;
   if (el.innerHTML !== html) el.innerHTML = html;
   el.onclick = (e) => { e.stopPropagation(); onClick(); };

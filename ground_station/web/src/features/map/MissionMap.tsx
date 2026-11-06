@@ -75,6 +75,13 @@ function MapInner({ mode, drone, droneStale, trail, alerts, selectedId, onSelect
       if (ready) return;
       ready = true;
       m.addSource("trail", { type: "geojson", lineMetrics: true, data: { type: "FeatureCollection", features: [] } });
+      m.addLayer({                         // soft glow under the track
+        id: "trail-glow", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-width": 12, "line-blur": 8,
+          "line-gradient": ["interpolate", ["linear"], ["line-progress"], 0, "rgba(57,135,229,0)", 1, "rgba(57,135,229,0.55)"],
+        },
+      });
       m.addLayer({
         id: "trail", type: "line", source: "trail", layout: { "line-cap": "round", "line-join": "round" },
         paint: {

@@ -1,14 +1,45 @@
-.gs-drone { width: 34px; height: 34px; filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.55)); }
-.gs-drone.gs-stale { opacity: 0.4; }
+/* ---- drone: top-down quadcopter (nose up; MapLibre rotates the marker to the course) */
+.gs-drone { position: relative; width: 64px; height: 64px; pointer-events: none; }
+.gs-drone-body { position: absolute; inset: 0; width: 64px; height: 64px; overflow: visible;
+  filter: drop-shadow(0 6px 6px rgb(0 0 0 / 0.45)); animation: gs-hover 3.2s ease-in-out infinite; }
+.gs-drone-arms path { stroke: #1d2330; stroke-width: 4.5; stroke-linecap: round; }
+.gs-rotor-disc { fill: rgb(232 235 241 / 0.14); stroke: rgb(232 235 241 / 0.55); stroke-width: 1; }
+.gs-rotor { fill: rgb(232 235 241 / 0.9); transform-box: fill-box; transform-origin: center; }
+.gs-rotor-cw { animation: gs-spin 0.18s linear infinite; }
+.gs-rotor-ccw { animation: gs-spin 0.18s linear infinite reverse; }
+.gs-rotor-hub { fill: #0d1016; stroke: #e8ebf1; stroke-width: 1; }
+.gs-drone-hull { fill: #e8ebf1; stroke: #1d2330; stroke-width: 2; }
+.gs-drone-nose { fill: var(--gs-accent); stroke: #1d2330; stroke-width: 1.5; stroke-linejoin: round; }
+.gs-drone-cam { fill: #0d1016; stroke: var(--gs-accent); stroke-width: 1.5; }
+.gs-led { animation: gs-blink 1.6s steps(1) infinite; }
+.gs-led-port { fill: #ff3b3b; } .gs-led-stbd { fill: #2bd96b; animation-delay: 0.8s; }
+.gs-drone-fov { position: absolute; left: -28px; top: -60px; width: 120px; height: 120px; pointer-events: none; }
+.gs-drone-scan { position: absolute; inset: 4px; border-radius: 9999px; border: 2px solid rgb(57 135 229 / 0.7);
+  animation: gs-scan 2.4s ease-out infinite; }
+/* lost link: rotors stop, everything greys out */
+.gs-drone.gs-stale .gs-rotor, .gs-drone.gs-stale .gs-led, .gs-drone.gs-stale .gs-drone-body { animation: none; }
+.gs-drone.gs-stale .gs-drone-scan, .gs-drone.gs-stale .gs-drone-fov { display: none; }
+.gs-drone.gs-stale { filter: grayscale(1); opacity: 0.55; }
+@keyframes gs-spin { to { transform: rotate(360deg); } }
+@keyframes gs-hover { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1.5px) scale(1.025); } }
+@keyframes gs-blink { 0% { opacity: 1; } 50% { opacity: 0.15; } }
+@keyframes gs-scan { 0% { transform: scale(0.55); opacity: 0.9; } 100% { transform: scale(2.1); opacity: 0; } }
+/* ---- alerts: icon pins with a radar ping while new */
 .gs-amark {
-  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9999px; cursor: pointer;
-  color: #fff; font: 800 12px/1 var(--font-sans, system-ui); border: 2px solid var(--gs-surface);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
+  position: relative; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9999px; cursor: pointer;
+  color: #fff; border: 2px solid rgb(255 255 255 / 0.9);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.45), inset 0 -3px 6px rgb(0 0 0 / 0.18);
+  transition: transform 0.15s ease;
 }
-.gs-amark-person { background: var(--gs-person); }
-.gs-amark-fire { background: var(--gs-fire); }
-.gs-amark-smoke { background: var(--gs-smoke); }
-.gs-amark-new { animation: gs-pulse 1.4s infinite; }
+.gs-amark:hover { transform: scale(1.12); }
+.gs-amark::after { content: ""; position: absolute; inset: -2px; border-radius: 9999px; border: 2px solid currentColor;
+  color: inherit; opacity: 0; pointer-events: none; }
+.gs-amark-person::after { color: var(--gs-person); } .gs-amark-fire::after { color: var(--gs-fire); }
+.gs-amark-smoke::after { color: var(--gs-smoke); }
+.gs-amark-new::after { animation: gs-radar 1.8s ease-out infinite; }
+.gs-amark-person { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--gs-person) 70%, white), var(--gs-person)); }
+.gs-amark-fire { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--gs-fire) 70%, #ffd27a), var(--gs-fire)); }
+.gs-amark-smoke { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--gs-smoke) 70%, white), var(--gs-smoke)); }
 .gs-amark-resolved { opacity: 0.38; }
 .gs-amark-selected { outline: 3px solid var(--gs-text); outline-offset: 1px; }
 .gs-amark:focus-visible { outline: 3px solid var(--gs-accent); outline-offset: 2px; }
@@ -18,9 +49,11 @@
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.45); font: 600 12px/1 var(--font-sans, system-ui);
 }
 .gs-cluster b { display: grid; place-items: center; min-width: 22px; height: 22px; border-radius: 9999px; background: var(--gs-surface-3); }
-.gs-cluster-parts { display: flex; gap: 5px; }
+.gs-cluster-parts { display: flex; gap: 7px; }
+.gs-cluster-parts span { display: inline-flex; align-items: center; gap: 2px; }
 .gs-cluster-person { color: var(--gs-person); } .gs-cluster-fire { color: var(--gs-fire); } .gs-cluster-smoke { color: var(--gs-smoke); }
 .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--gs-surface) 80%, transparent) !important; color: var(--gs-muted) !important; font-size: 11px; }
 .maplibregl-ctrl-attrib a { color: var(--gs-text-2) !important; }
 .maplibregl-ctrl-attrib-button { filter: invert(var(--gs-attrib-invert, 0)); }
 :root[data-theme="dark"] { --gs-attrib-invert: 1; }
+@keyframes gs-radar { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(2.2); opacity: 0; } }

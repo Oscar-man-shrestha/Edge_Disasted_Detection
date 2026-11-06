@@ -12,7 +12,10 @@ export function buildStyle({ dark }: { dark: boolean }): StyleSpecification {
     },
     layers: [
       { id: "background", type: "background", paint: { "background-color": dark ? "#10141b" : "#e9edf2" } },
-      { id: "osm", type: "raster", source: "osm", paint: { "raster-brightness-max": dark ? 0.75 : 1, "raster-fade-duration": 150 } },
+      // dark: muted "tactical" basemap so the drone, track and alerts stand out
+      { id: "osm", type: "raster", source: "osm", paint: dark
+        ? { "raster-brightness-max": 0.62, "raster-saturation": -0.55, "raster-contrast": 0.1, "raster-fade-duration": 150 }
+        : { "raster-brightness-max": 1, "raster-fade-duration": 150 } },
     ],
   };
 }

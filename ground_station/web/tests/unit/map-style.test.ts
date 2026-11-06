@@ -13,11 +13,13 @@ describe("buildStyle", () => {
     expect(s).not.toHaveProperty("sprite");
     expect(s.layers.map((l) => l.id)).toEqual(["background", "osm"]);
   });
-  it("dims the basemap in dark mode", () => {
+  it("dims and desaturates the basemap in dark mode only", () => {
     const dark = buildStyle({ dark: true }).layers[1] as any;
     const light = buildStyle({ dark: false }).layers[1] as any;
-    expect(dark.paint["raster-brightness-max"]).toBe(0.75);
+    expect(dark.paint["raster-brightness-max"]).toBeLessThan(0.75);
+    expect(dark.paint["raster-saturation"]).toBeLessThan(0);
     expect(light.paint["raster-brightness-max"]).toBe(1);
+    expect(light.paint["raster-saturation"]).toBeUndefined();
   });
   it("attribution text", () => {
     expect(ATTRIBUTION).toBe("© OpenStreetMap contributors · Terrain: Mapzen, AWS Terrain Tiles");

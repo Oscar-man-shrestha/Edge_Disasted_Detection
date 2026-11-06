@@ -337,3 +337,15 @@ those **read-only values** readable at every start (`ExecStartPre=-...chmod a+r`
 never stop the service). Re-installed with `sudo jetson/install_service.sh`. Verified: power back on the dashboard (**2.58 W** at 3.75 fps, 10 % CPU, 32 °C).
 
 **Mac:** `.link_key` added; tests: **131 Python + 70 dashboard** pass; dashboard rebuilt.
+
+### 22. Dashboard look (laptop only: no effect on the drone's battery)
+- **Drone marker:** the arrow is now a top-down **quadcopter** with 4 spinning rotors (alternating direction),
+  red/green navigation lights, a forward camera cone and a pulsing scan ring. It still rotates to the course.
+  Link lost → rotors stop and it greys out.
+- **Alert markers:** icon pins (flame / person / smoke shapes, so colour is never the only cue) with a radar ping
+  while new; clusters show the icons too.
+- **Track:** soft glow under the flight line.
+- **Dark mode map:** muted "tactical" basemap (darker, less saturated) so drone, track and alerts stand out.
+- All animation is CSS in the browser and switches off with the OS "reduce motion" setting.
+- Checked with headless Chromium at 1440x900 in dark and light: 0 console errors. 70/70 UI tests pass
+  (one test updated on purpose: the dark map is now dimmer *and* desaturated).
