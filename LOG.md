@@ -20,9 +20,10 @@ Lenovo FHD USB webcam · u-blox NEO-M8N GPS + compass · 5 V barrel power · Mac
 | AI check on the GPU (both models, real webcam frame) | ✅ |
 | TensorRT FP16 engines | ✅ ~2.3x faster, work offline |
 | **First live run: Nano webcam → AI → Mac dashboard** | ✅ auto-discovery over USB, LIVE · nano-01 |
+| Real person + fire detection, alerts with snapshots | ✅ person 51–95 %, fire 64–80 % |
 | Ground station on the Mac (port 5050) | ✅ running, "Waiting for drone" |
 | Nano → Mac station link over USB (`192.168.55.100:5050`) | ✅ tested |
-| Camera snapshot / AI check / first live run | ⏳ next |
+
 | GPS wiring | ⏳ later |
 
 ---
@@ -204,9 +205,24 @@ Note: 3.25 of 3.9 GB RAM are used once both TensorRT engines are loaded. It's st
 ### Security to-do
 - The Nano login password and the lowey Wi-Fi password were shared in chat. Change the Nano password with `passwd` when convenient.
 
-### Next (needs a person in the room)
-1. **Fire test:** play a fire video on a phone in front of the webcam → expect a fire alert on the dashboard.
-2. **Person test:** walk in front of the webcam → person alert + red banner.
-3. **GPS:** NEO-M8N via a USB-TTL adapter (CP2102/CH340/FTDI) or the 40-pin header UART, then `EDGE_GPS=nmea`.
-4. Autostart on boot (`jetson/install_service.sh`, needs sudo once).
-5. Change the Nano password (`passwd`).
+## 2026-11-06
+
+### 15. Real detection tests ✅
+- **Person test:** walked in front of the webcam → **person alerts at 51–95 %**, red "Person detected" banner on the dashboard.
+- **Fire test:** fire video on a phone, held in front of the webcam → **fire alerts at 64–80 %**,
+  red box drawn exactly around the flames on the phone screen, markers on the map.
+- 11 alerts made on the Nano, all 11 delivered to the Mac (`sent=1` in the drone's `data/alerts.db`).
+- Stage 2 (YOLO, TensorRT, both models) shown on the dashboard at ~385 ms per triggered frame, including pre/post-processing.
+
+**Bug found: alert thumbnails were broken images on the dashboard.**
+- The drone sent every snapshot and the station saved them, but `/snap/<name>` returned **404**.
+- Cause: the station was started with a **relative** `GS_DATA_DIR` (`ground_station/received/live`). Files were saved relative
+  to the working folder, but Flask served them relative to the app folder (`ground_station/ground_station/...`).
+  The cached map tiles had the same problem.
+- Fix: `create_app` now makes the data folder absolute. New test `test_snapshot_served_with_relative_data_dir`
+  failed before the fix, passes after; full suite **113 passed**. Station restarted; all 5 thumbnails load ✅.
+
+### Next
+1. **GPS:** NEO-M8N via a USB-TTL adapter (CP2102/CH340/FTDI) or the 40-pin header UART, then `EDGE_GPS=nmea`.
+2. Autostart on boot (`jetson/install_service.sh`, needs sudo once).
+3. Change the Nano password (`passwd`).

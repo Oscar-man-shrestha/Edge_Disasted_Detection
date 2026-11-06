@@ -73,7 +73,8 @@ def _sorted(alerts):
 
 def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir=None,
                terrain_fetch=None):
-    data_dir = data_dir or os.path.join(BASE, "received")
+    # absolute: Flask resolves relative paths against the app folder, not the cwd
+    data_dir = os.path.abspath(data_dir or os.path.join(BASE, "received"))
     snap_dir = os.path.join(data_dir, "snaps")
     os.makedirs(snap_dir, exist_ok=True)
 

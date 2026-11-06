@@ -122,6 +122,20 @@ def test_link_key_required_when_set(tmp_path):
     assert c.get("/api/state").status_code == 200
 
 
+def test_snapshot_served_with_relative_data_dir(tmp_path, monkeypatch):
+    """GS_DATA_DIR=ground_station/received/live (relative) must still serve snapshots.
+    Flask resolves relative paths against the app folder, not the working directory."""
+    monkeypatch.chdir(tmp_path)
+    c = create_app("rel/data", watcher=False).test_client()
+    r = c.post("/alert", content_type="multipart/form-data", data={
+        "alert_id": "1", "drone_id": "nano", "type": "person", "conf": "0.9",
+        "lat": "12.97", "lon": "77.59", "video_time": "1.0", "wall_time": "w1",
+        "snapshot": (io.BytesIO(jpeg()), "s.jpg")})
+    assert r.status_code == 200
+    got = c.get("/snap/1_person.jpg")
+    assert got.status_code == 200 and got.data[:2] == b"\xff\xd8"
+
+
 def test_snap_path_traversal_404(client, app):
     assert client.get("/snap/../station.db").status_code == 404
     assert client.get("/snap/%2e%2e/station.db").status_code == 404
