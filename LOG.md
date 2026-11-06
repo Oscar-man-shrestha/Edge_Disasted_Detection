@@ -176,8 +176,26 @@ Stage 2 did not run because nothing moved in the dark room: the gate is doing it
 
 To stop it: `docker ps` then `docker stop <id>` (on the Nano).
 
-### Left running overnight
-The live pipeline keeps running overnight as a **stability test** (temperature, memory, link drops).
+### 14. Overnight stability test (4 hours, sampled every 10 min from the station)
+
+| | Result |
+|---|---|
+| Uptime | 4 h without a crash, **24,800+ frames** |
+| Frame rate | steady 1.78 fps (the 0.5 s sampling interval, as designed) |
+| Stage 1 gate | 20–23 ms per frame |
+| CPU / GPU temperature | **29–30.5 °C** the whole time (cool) |
+| Power | **2.4–2.8 W** while scanning |
+| Link to the Mac | every sample fresh, no drops |
+| RAM | 0.67 GB, then **3.25 GB** after the first trigger, then flat (no leak) |
+| Triggers / Stage 2 runs / alerts | 2 / 2 / **0**: no false alarms all night |
+
+**Found:** the TensorRT engines only load into GPU memory at the **first** Stage 2 run, which takes **17 s** on the Nano,
+so the first real fire or person would have been reported ~17 s late.
+**Fix:** `run_pipeline.py` now runs one warm-up detection at startup (`[stage2] models ready (warm-up 17.2 s)`).
+Verified on the Nano; 112 tests still pass. The live pipeline was restarted with the fix and keeps running.
+
+Note: 3.25 of 3.9 GB RAM are used once both TensorRT engines are loaded. It's stable, but don't run other heavy jobs
+(e.g. a second TensorRT export) at the same time as the live pipeline.
 
 ### Mistake to undo on the Mac
 - A Nano-only command was run on the Mac with `sudo`, creating `/etc/sudoers.d/edge-docker` **on the Mac**.

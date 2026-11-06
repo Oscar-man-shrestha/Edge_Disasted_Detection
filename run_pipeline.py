@@ -6,6 +6,8 @@ thread (link.py). By default the station is found automatically (EDGE_SERVER_URL
 import signal
 import time
 
+import numpy as np
+
 import config
 from alert_store import AlertStore
 from frame_source import FrameSource
@@ -16,6 +18,11 @@ from stage2_detector import Stage2Detector, Stage2Scheduler
 from system_stats import SystemStats
 
 gate, det, gps, store = Stage1Gate(), Stage2Detector(), make_gps(), AlertStore()
+# Warm-up: TensorRT/CUDA allocate on the first inference (several seconds on a Nano);
+# do it now so the first real fire or person is not delayed.
+_t0 = time.time()
+det.detect(np.zeros((config.FRAME_HEIGHT, config.FRAME_WIDTH, 3), np.uint8))
+print("[stage2] models ready (warm-up %.1f s)" % (time.time() - _t0))
 sched = Stage2Scheduler()
 state = LinkState()
 finder = StationFinder(fixed_url=None if config.SERVER_URL == "auto" else config.SERVER_URL)
