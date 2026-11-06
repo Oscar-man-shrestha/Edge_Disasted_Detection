@@ -270,3 +270,27 @@ The autostart settings live in `/etc/default/edge-drone` (TensorRT engines, webc
 1. **GPS:** later, see section 18.
 2. **Field test** over the Nano's own hotspot (DRONE-EDGE) instead of the USB cable.
 3. Change the Nano password (`passwd`).
+
+### 19. Autostart at power-on ✅
+Run by the user on the Nano (password):
+```bash
+sudo timedatectl set-timezone Asia/Kolkata
+cd ~/Edge_Disasted_Detection_Project && sudo jetson/install_service.sh
+sudo reboot
+```
+After the reboot, with nobody touching the Nano:
+- `edge-drone` service **active + enabled**, timezone **Asia/Kolkata (IST, +0530)**
+- `[stage2] models ready (warm-up 26.5 s)` → `[camera] usb 1280x720 @ 30 fps` →
+  `[link] ground station found at http://192.168.55.100:5050` (about 3 min from power-on to LIVE)
+- Dashboard back to LIVE. The drone now reports as **`eshaan-desktop`** (the default ID is the hostname;
+  set `EDGE_DRONE_ID=nano-01` in `/etc/default/edge-drone` if you want the old name).
+- The "set EDGE_SERVER_URL to your laptop's IP" message from the installer can be ignored: it is `auto`.
+- Undo: `sudo systemctl disable --now edge-drone` · logs: `journalctl -u edge-drone -f`
+
+**Mac side:** the ground station had stopped (it ran inside an old Claude session).
+New `./start_station.sh` in the repo starts it from its own small `venv/` (flask, requests, numpy,
+opencv-headless, pyserial, pytest: 162 MB, **no PyTorch needed** on the laptop). 116 tests pass in it.
+To start the station any time:
+```bash
+cd ~/Edge_Disasted_Detection_Project && ./start_station.sh
+```
