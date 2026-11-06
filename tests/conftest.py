@@ -16,6 +16,7 @@ def tmp_config(tmp_path, monkeypatch):
     """Point every file the code writes at a temp dir."""
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "alerts.db"))
     monkeypatch.setattr(config, "SNAPSHOT_DIR", str(tmp_path / "snaps"))
+    monkeypatch.setattr(config, "CLIP_DIR", str(tmp_path / "clips"))       # never the real data/clips
     monkeypatch.setattr(config, "FLIGHT_PATH_CSV", os.path.join(REPO, "data", "flight_path.csv"))
     return tmp_path
 
