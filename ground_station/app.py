@@ -340,11 +340,25 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
 
 
 
+def _default_host():
+    """'::' (IPv6 + IPv4) when available: browsers often try localhost as ::1 first,
+    and an IPv4-only server then looks offline. Falls back to 0.0.0.0."""
+    try:
+        s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        s.close()
+        return "::"
+    except (OSError, AttributeError):
+        return "0.0.0.0"
+
+
 def main():
-    host = os.environ.get("GS_HOST", "0.0.0.0")
+    host = os.environ.get("GS_HOST") or _default_host()
     port = int(os.environ.get("GS_PORT", str(DEFAULT_PORT)))
     data_dir = os.environ.get("GS_DATA_DIR") or None
-    targets = os.environ.get("GS_BEACON_TARGETS", "255.255.255.255,10.42.0.255").split(",")
+    # 10.42.0.x = the Nano's hotspot, 192.168.55.x = the Nano's USB cable link
+    targets = os.environ.get("GS_BEACON_TARGETS",
+                             "255.255.255.255,10.42.0.255,192.168.55.255").split(",")
     beacon_port = int(os.environ.get("GS_BEACON_PORT", str(DEFAULT_BEACON_PORT)))
     app = create_app(data_dir, link_key=os.environ.get("GS_LINK_KEY", ""))
     Beacon(port, targets, beacon_port=beacon_port).start()
