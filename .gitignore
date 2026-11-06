@@ -6,6 +6,7 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/flight_path.csv
+!data/survey_path.csv
 weights/*
 !weights/.gitkeep
 *.engine

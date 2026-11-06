@@ -70,8 +70,11 @@ GPS_PORT = os.environ.get("EDGE_GPS_PORT", "/dev/ttyTHS1")
 GPS_BAUD = int(os.environ.get("EDGE_GPS_BAUD", "0"))   # 0 = auto-detect (M8N default 9600)
 GPS_MAX_FIX_AGE_SEC = 5        # older fixes count as "no fix" in alerts
 MAVLINK_URL = os.environ.get("EDGE_MAVLINK_URL", "/dev/ttyTHS1,57600")  # or "udpin:0.0.0.0:14550"
-FLIGHT_PATH_CSV = "data/flight_path.csv"
-DRONE_SPEED_MPS = 5.0          # simulated ground speed, metres per second
+# Simulated route. data/survey_path.csv = back-and-forth survey lanes over the park; with
+# EDGE_SIM_LOOP=1 the drone patrols it forever instead of parking at the last waypoint.
+FLIGHT_PATH_CSV = os.environ.get("EDGE_SIM_PATH", "data/flight_path.csv")
+SIM_LOOP = _env_bool("EDGE_SIM_LOOP", False)
+DRONE_SPEED_MPS = float(os.environ.get("EDGE_SIM_SPEED", "5.0"))   # simulated ground speed, m/s
 
 # --- Alerts ---
 DB_PATH = os.environ.get("EDGE_DB_PATH", "data/alerts.db")
