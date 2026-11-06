@@ -55,6 +55,11 @@ PERSON_WEIGHTS = os.environ.get("EDGE_PERSON_WEIGHTS", "weights/yolov8n.pt")
 FIRE_WEIGHTS = os.environ.get("EDGE_FIRE_WEIGHTS", "weights/fire_smoke.pt")
 CONF_THRESHOLD = 0.3
 IMG_SIZE = 640                 # must match the imgsz used for TensorRT/ONNX export
+# Longer range for people: also search N overlapping tiles of the FULL camera frame (1280 px)
+# for the person model. 2 = about 1.8x the detection distance, ~2x the person-model time.
+# 0 = off (whole downscaled frame only).
+TILES = int(os.environ.get("EDGE_TILES", "0"))
+TILE_OVERLAP = 0.2
 # After Stage 2 has confirmed something, run it only on every Nth triggered frame
 # while detections keep coming. 1 = run on every triggered frame (old behaviour).
 STAGE2_EVERY_N_WHILE_CONFIRMED = int(os.environ.get("EDGE_STAGE2_EVERY_N", "3"))

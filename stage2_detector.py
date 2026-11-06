@@ -3,6 +3,42 @@ import time
 import config
 
 
+def tile_boxes(width, height, n, overlap=0.2):
+    """n side-by-side tiles (x0, y0, x1, y1) covering a frame, neighbours overlapping by
+    `overlap` of a tile, so someone standing on a seam is whole in at least one tile."""
+    if n < 2:
+        return []
+    tw = int(round(width / (n - (n - 1) * overlap)))
+    step = (width - tw) / (n - 1)
+    return [(int(round(i * step)), 0, int(round(i * step)) + tw, height) for i in range(n)]
+
+
+def _iou_and_cover(a, b):
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    area = lambda r: max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+    ua = area(a) + area(b) - inter
+    return (inter / ua if ua else 0.0), (inter / min(area(a), area(b)) if min(area(a), area(b)) else 0.0)
+
+
+def merge_dets(dets, iou=0.5, cover=0.8):
+    """One box per object when the whole frame and the tiles found it more than once:
+    per type, keep the most confident box and drop boxes that overlap it (IoU) or lie
+    mostly inside it (a tile only saw part of the person)."""
+    def duplicate(k, d):
+        if k["type"] != d["type"]:
+            return False
+        overlap, inside = _iou_and_cover(k["box"], d["box"])
+        return overlap > iou or inside > cover
+
+    kept = []
+    for d in sorted(dets, key=lambda x: -x["conf"]):
+        if not any(duplicate(k, d) for k in kept):
+            kept.append(d)
+    return kept
+
+
 class Stage2Detector:
     """Heavy check. Only call this when Stage 1 triggers (and the scheduler agrees).
 
@@ -33,9 +69,25 @@ class Stage2Detector:
             })
         return out
 
-    def detect(self, frame):
+    def _tiled_people(self, frame, full):
+        """People in full-resolution tiles, boxes mapped back to `frame` pixels. A person
+        far away is ~2x bigger in a tile than in the downscaled frame: about 1.8x the range."""
+        sx, sy = frame.shape[1] / full.shape[1], frame.shape[0] / full.shape[0]
+        out = []
+        for x0, y0, x1, y1 in tile_boxes(full.shape[1], full.shape[0], config.TILES, config.TILE_OVERLAP):
+            for d in self._run(self.person_model, full[y0:y1, x0:x1], classes=[0]):
+                b = d["box"]
+                d["box"] = [(b[0] + x0) * sx, (b[1] + y0) * sy, (b[2] + x0) * sx, (b[3] + y0) * sy]
+                out.append(d)
+        return out
+
+    def detect(self, frame, full=None):
+        """frame: the downscaled pipeline frame. full: the camera frame at full resolution;
+        with EDGE_TILES >= 2 people are also searched in tiles of it (longer range)."""
         t0 = time.perf_counter()
         dets = self._run(self.person_model, frame, classes=[0])   # COCO class 0 = person
+        if config.TILES >= 2 and full is not None and full.shape[1] > frame.shape[1]:
+            dets = merge_dets(dets + self._tiled_people(frame, full))
         if self.fire_model is not None:
             dets += self._run(self.fire_model, frame)
         ms = (time.perf_counter() - t0) * 1000

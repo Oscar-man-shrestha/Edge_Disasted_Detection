@@ -42,7 +42,10 @@ signal.signal(signal.SIGTERM, _on_sigterm)
 t0 = None
 total = ran = 0
 try:
-    for idx, ts, frame in FrameSource().frames():
+    src = FrameSource()
+    if config.TILES >= 2:
+        print("[stage2] tiled person search: %d tiles of the full camera frame" % config.TILES)
+    for idx, ts, frame in src.frames():
         t0 = ts if t0 is None else t0
         t = ts - t0
         total += 1
@@ -56,7 +59,7 @@ try:
             continue
 
         ran += 1
-        dets, ms = det.detect(frame)
+        dets, ms = det.detect(frame, full=src.last_full) if config.TILES >= 2 else det.detect(frame)
         sched.update(dets)
         state.frame(frame, r, ran_stage2=True, stage2_ms=ms, t=t, skipped=sched.skipped)
         state.detections(dets, time.time())

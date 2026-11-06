@@ -50,6 +50,7 @@ class FrameSource:
         self.skip = max(1, int(self.fps * interval))
         self.frame_index = 0
         self._last_time = 0.0
+        self.last_full = None
 
     def _setup_usb_camera(self):
         """Ask a USB webcam for MJPG at USB_CAPTURE_* and a 1-frame buffer (less lag).
@@ -81,6 +82,7 @@ class FrameSource:
                 self._last_time = now
                 ts = now
 
+            self.last_full = frame                # full camera resolution, for tiled detection
             if frame.shape[1] != config.FRAME_WIDTH or frame.shape[0] != config.FRAME_HEIGHT:
                 frame = cv2.resize(frame, (config.FRAME_WIDTH, config.FRAME_HEIGHT))
             yield self.frame_index, ts, frame
