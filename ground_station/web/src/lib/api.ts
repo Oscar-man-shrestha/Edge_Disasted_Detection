@@ -40,3 +40,4 @@ export const exportUrl = (id: number, fmt: "csv" | "geojson" | "kml") => `/api/m
 export const reportUrl = (id: number) => `/report/${id}`;
 export const previewUrl = (t: number) => `/api/preview.jpg?t=${encodeURIComponent(String(t))}`;
 export const snapUrl = (name: string) => `/snap/${encodeURIComponent(name)}`;
+export const clipFrameUrl = (alertId: number, i: number) => `/clip/${alertId}/${i}.jpg`;

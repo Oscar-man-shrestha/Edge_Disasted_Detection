@@ -1,3 +1,4 @@
+import { Film } from "lucide-react";
 import { memo } from "react";
 import { snapUrl } from "../../lib/api";
 import { fmtClock, fmtCoord } from "../../lib/format";
@@ -22,6 +23,7 @@ export const AlertRow = memo(function AlertRow({ alert: a, selected, onSelect }:
             <TypeBadge type={a.type} />
             <b className="tabular font-mono text-sm">{Math.round(a.conf * 100)}%</b>
             <StatusBadge status={a.status} />
+            {(a.clip_frames ?? 0) > 0 && <Film size={13} className="text-text-2" aria-label="has clip" />}
             <span className="ml-auto text-[11px] text-muted">#{a.id}</span>
           </span>
           <span className="mt-1 block truncate text-xs text-text-2">

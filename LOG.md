@@ -294,3 +294,46 @@ To start the station any time:
 ```bash
 cd ~/Edge_Disasted_Detection_Project && ./start_station.sh
 ```
+
+### 20. Fresh start
+All alerts, photos and test pictures deleted on both the Mac and the Nano (user's request, no backup).
+Kept only the map tile cache and `data/flight_path.csv` (simulated GPS route).
+
+### 21. Improvements (software only, no system/firmware/power changes)
+
+**One alert per event.** Before: a person standing in view made a new alert every ~10–15 s.
+Now (`alert_store.py`): while the same type keeps being seen with gaps < `EVENT_GAP_SEC` (30 s) there is no new
+alert, except one every `ALERT_REPEAT_SEC` (60 s) with a fresh photo + position for long events.
+Below-threshold person sightings do not keep an event alive.
+
+**Video clips with every alert** (`clip_recorder.py`): JPEG frames from 4 s before to 4 s after the alert
+(480 px). They play in any browser; no video codec needed on the Jetson.
+- Nano cost measured: **~10 ms per frame** to encode, < 1 MB RAM; at most **200 clips** kept on the SD card.
+- Sent to the station only **after** their alert, one per round (`POST /api/clip`), so they never delay a new alert.
+  Unknown alert (404) → given up, never retried forever.
+- Dashboard: alert detail has a **Photo / Clip** switch with play/pause + slider; 🎞 icon in the list.
+- Live result: alerts #3–#7 (person, smoke, fire) all arrived with clips of 15–30 frames.
+
+**Secure link.** Drone and station share a random key in `<repo>/.link_key` (git-ignored, mode 600, same file
+on the Mac and the Nano; `EDGE_LINK_KEY` / `GS_LINK_KEY` still override). Station prints
+`Link key: ON`. Verified: the old drone process without the key was refused (HTTP 401) until it restarted with it.
+
+**Less lag** (measured on the Nano, nearly idle before and after):
+
+| | Before | After |
+|---|---|---|
+| Frames checked per second | 1.88 | **3.75** (`EDGE_SAMPLE_SEC=0.25`, floor 0.2) |
+| Preview on the dashboard | every 1.5 s | **every ~0.6 s** (`EDGE_PREVIEW_SEC=0.5`) |
+| CPU / temperature | 8.1 % / 30.5 °C | **8.8 % / 31.5 °C** |
+
+The motion gate now compares with the frame **0.5 s ago** (`MOTION_BASELINE_SEC`), not simply the previous one,
+so faster sampling does not make it less sensitive (new test fails on the old gate). At the default 2 fps
+behaviour is identical. Settings live in `/etc/default/edge-drone` (two lines at the end; remove them to undo).
+Defaults in the code stay slow (weak radio links in the field).
+
+**Regression found and fixed:** power showed "None" after the container started running as `eshaan`:
+the Nano's power sensor files (`in_power*_input`, `rail_name_*`) are root-only. The service (root) now makes
+those **read-only values** readable at every start (`ExecStartPre=-...chmod a+r`; the `-` means a failure can
+never stop the service). Re-installed with `sudo jetson/install_service.sh`.
+
+**Mac:** `.link_key` added; tests: **131 Python + 70 dashboard** pass; dashboard rebuilt.

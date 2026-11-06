@@ -7,7 +7,7 @@ import time
 STATUSES = ("new", "acknowledged", "resolved")
 ALERT_COLS = ["id", "mission_id", "drone_id", "drone_alert_id", "type", "conf", "lat", "lon",
               "video_time", "wall_time", "received", "snapshot", "status", "note",
-              "acked_at", "resolved_at", "received_at"]
+              "acked_at", "resolved_at", "received_at", "clip_frames", "clip_fps"]
 TRACK_MIN_MOVE_M = 2.0
 TRACK_MIN_DT_S = 5.0
 TELEMETRY_SAMPLE_S = 5.0
@@ -74,7 +74,8 @@ class Store:
         have = {r["name"] for r in db.execute("PRAGMA table_info(alerts)")}
         for col, decl in [("mission_id", "INTEGER"), ("drone_id", "TEXT"),
                           ("status", "TEXT DEFAULT 'new'"), ("note", "TEXT"),
-                          ("acked_at", "TEXT"), ("resolved_at", "TEXT"), ("received_at", "REAL")]:
+                          ("acked_at", "TEXT"), ("resolved_at", "TEXT"), ("received_at", "REAL"),
+                          ("clip_frames", "INTEGER"), ("clip_fps", "REAL")]:
             if col not in have:
                 db.execute("ALTER TABLE alerts ADD COLUMN %s %s" % (col, decl))
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS dedupe ON alerts(drone_alert_id, wall_time)")
@@ -169,6 +170,18 @@ class Store:
                  time.strftime("%H:%M:%S"), time.time()))
             self.db.commit()
             return self._alert(cur.lastrowid), True
+
+    def find_alert(self, drone_alert_id, wall_time):
+        with self.lock:
+            r = self.db.execute("SELECT id FROM alerts WHERE drone_alert_id=? AND wall_time=?",
+                                (drone_alert_id, wall_time)).fetchone()
+            return self._alert(r["id"]) if r else None
+
+    def set_clip(self, aid, frames, fps):
+        with self.lock:
+            self.db.execute("UPDATE alerts SET clip_frames=?, clip_fps=? WHERE id=?", (frames, fps, aid))
+            self.db.commit()
+            return self._alert(aid)
 
     def set_snapshot(self, aid, name):
         with self.lock:

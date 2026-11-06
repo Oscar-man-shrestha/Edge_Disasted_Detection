@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, CheckCheck, Copy, LocateFixed, RotateCcw, ZoomIn } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, Copy, Film, Image as ImageIcon, LocateFixed, RotateCcw, ZoomIn } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { snapUrl } from "../../lib/api";
@@ -9,12 +9,16 @@ import { StatusBadge, TypeBadge } from "../../ui/Badge";
 import { Button } from "../../ui/Button";
 import { cn } from "../../ui/cn";
 import { saveAlertNote, setAlertStatus } from "./actions";
+import { ClipPlayer } from "./ClipPlayer";
 
 export function AlertDetail({ alert: a, onBack }: { alert: Alert; onBack(): void }) {
   const [zoom, setZoom] = useState(false);
   const [note, setNote] = useState(a.note ?? "");
   const [busy, setBusy] = useState(false);
+  const hasClip = (a.clip_frames ?? 0) > 0;
+  const [view, setView] = useState<"photo" | "clip">("photo");
   useEffect(() => setNote(a.note ?? ""), [a.id, a.note]);
+  useEffect(() => setView("photo"), [a.id]);
   const located = a.lat != null && a.lon != null;
   const act = async (f: () => Promise<boolean>) => { setBusy(true); await f(); setBusy(false); };
 
@@ -30,7 +34,18 @@ export function AlertDetail({ alert: a, onBack }: { alert: Alert; onBack(): void
         <span className="ml-auto text-xs text-muted">#{a.id}</span>
       </div>
 
-      {a.snapshot ? (
+      {hasClip && (
+        <div className="mt-3 inline-flex rounded-lg border border-line p-0.5 text-xs font-semibold" role="group" aria-label="Photo or clip">
+          {(["photo", "clip"] as const).map((v) => (
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}
+              className={cn("flex items-center gap-1 rounded-md px-2.5 py-1", view === v ? "bg-surface-3 text-text" : "text-text-2 hover:text-text")}>
+              {v === "photo" ? <ImageIcon size={13} /> : <Film size={13} />} {v === "photo" ? "Photo" : `Clip (${Math.round((a.clip_frames ?? 0) / (a.clip_fps || 2))} s)`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasClip && view === "clip" ? <ClipPlayer alertId={a.id} frames={a.clip_frames!} fps={a.clip_fps ?? 2} /> : a.snapshot ? (
         <button type="button" onClick={() => setZoom((z) => !z)} aria-label={zoom ? "Zoom out snapshot" : "Zoom in snapshot"}
           className="relative mt-3 block w-full overflow-hidden rounded-lg border border-line bg-black">
           <img src={snapUrl(a.snapshot)} alt={`${a.type} alert ${a.id} snapshot`}

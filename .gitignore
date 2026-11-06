@@ -22,3 +22,6 @@ ground_station/web/playwright-report/
 
 # Ultralytics settings written by the Jetson container
 .ultralytics/
+
+# shared drone <-> station secret (never commit)
+.link_key

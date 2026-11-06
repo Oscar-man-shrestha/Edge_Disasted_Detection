@@ -9,6 +9,8 @@ export interface Alert {
   lat: number | null; lon: number | null; wall_time: string | null; received: string | null;
   received_at: number | null; snapshot: string | null; status: AlertStatus; note: string | null;
   acked_at: string | null; resolved_at: string | null;
+  /** short clip around the alert (JPEG frames), when the drone sent one */
+  clip_frames?: number | null; clip_fps?: number | null;
 }
 export interface Mission {
   id: number; name: string; started_at: string; ended_at: string | null;

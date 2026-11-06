@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import config
 from stage1_gate import Stage1Gate
 
@@ -50,3 +51,27 @@ def test_featureless_frame_falls_back_without_crash():
     f = np.full((360, 640, 3), 90, np.uint8)
     r1, r2 = g.check(f), g.check(f)
     assert r2["aligned"] is False and r2["diff_frac"] == 0.0
+
+
+def test_motion_sensitivity_independent_of_sample_rate(monkeypatch):
+    """A square moving at constant speed must flag the same at 2 and at 4 frames/s:
+    the gate compares with the frame ~0.5 s ago, not just the previous one."""
+    import config
+    from stage1_gate import Stage1Gate
+    monkeypatch.setattr(config, "FIRE_PIXEL_FRACTION", 2.0)          # motion only
+
+    def frames(step_px):
+        for k in range(12):
+            f = np.full((360, 640, 3), 60, np.uint8)
+            x = 40 + int(k * step_px)
+            f[100:300, x:x + 200] = 220
+            yield f
+
+    def diffs(interval, step_px):
+        monkeypatch.setattr(config, "SAMPLE_INTERVAL_SEC", interval)
+        g = Stage1Gate(motion_compensation=False)
+        return [g.check(f)["diff_frac"] for f in frames(step_px)][4:]
+
+    slow = diffs(0.5, 20)          # 40 px/s seen at 2 fps (square stays inside the frame)
+    fast = diffs(0.25, 10)         # the same 40 px/s seen at 4 fps
+    assert min(fast) == pytest.approx(min(slow), rel=0.05)

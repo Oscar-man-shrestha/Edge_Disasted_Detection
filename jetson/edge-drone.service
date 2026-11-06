@@ -10,6 +10,9 @@ Type=simple
 EnvironmentFile=-/etc/default/edge-drone
 Environment=DOCKER=docker
 ExecStartPre=-/usr/bin/jetson_clocks
+# The pipeline runs as the repo owner, not root: let it READ the board power sensor
+# (root-only by default, reset at every boot). Read-only values, nothing is changed.
+ExecStartPre=-/bin/sh -c 'chmod a+r /sys/bus/i2c/drivers/ina3221x/*/iio:device*/in_power*_input /sys/bus/i2c/drivers/ina3221x/*/iio:device*/in_current*_input /sys/bus/i2c/drivers/ina3221x/*/iio:device*/in_voltage*_input /sys/bus/i2c/drivers/ina3221x/*/iio:device*/rail_name_* 2>/dev/null || true'
 ExecStart=REPO_DIR/jetson/run_docker.sh python3 run_pipeline.py
 Restart=on-failure
 RestartSec=5

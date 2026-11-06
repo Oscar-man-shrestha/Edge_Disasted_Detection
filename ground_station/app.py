@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import socket
 import threading
 import time
@@ -28,7 +29,8 @@ PRIORITY = {"person": 1, "fire": 2, "smoke": 3}
 DEFAULT_PORT = 5050
 LINK_LOST_SEC = 3.0
 PREVIEW_MAX_BYTES = 500 * 1024
-DRONE_ROUTES = ("/alert", "/api/telemetry", "/api/preview")
+DRONE_ROUTES = ("/alert", "/api/telemetry", "/api/preview", "/api/clip")
+CLIP_MAX_FRAMES = 120
 TELEMETRY_BLOCKS = ("gps", "pipeline", "system", "link")
 SNAP_NAME = re.compile(r"^\d+_[a-z]+\.jpg$")
 GPS_NUMBERS = ("lat", "lon", "alt_m", "sats", "hdop", "speed_mps", "course_deg", "age_s")
@@ -172,6 +174,39 @@ def create_app(data_dir=None, link_key="", watcher=True, tile_fetch=None, ui_dir
         print("[station] alert #%d %s %.2f @ %s" % (alert["id"], typ, alert["conf"], where))
         bus.publish("alert", {"alert": alert})
         return jsonify(ok=True)
+
+    @app.route("/api/clip", methods=["POST"])
+    def receive_clip():
+        """Short alert clip from the drone: JPEG frames 000.jpg.. for an alert it already sent."""
+        alert = store.find_alert(request.form.get("alert_id"), request.form.get("wall_time"))
+        if alert is None:
+            return jsonify(error="unknown alert"), 404
+        frames = request.files.getlist("frames")
+        if not 0 < len(frames) <= CLIP_MAX_FRAMES:
+            return jsonify(error="1..%d frames" % CLIP_MAX_FRAMES), 400
+        try:
+            fps = min(30.0, max(0.2, float(request.form.get("fps") or 2.0)))
+        except ValueError:
+            fps = 2.0
+        path = os.path.join(snap_dir, "clips", str(alert["id"]))
+        shutil.rmtree(path, ignore_errors=True)       # a resend replaces the old clip
+        os.makedirs(path)
+        for i, f in enumerate(frames):
+            f.save(os.path.join(path, "%03d.jpg" % i))
+        alert = store.set_clip(alert["id"], len(frames), fps)
+        print("[station] clip for alert #%d: %d frames" % (alert["id"], len(frames)))
+        bus.publish("alert_update", {"alert": alert})
+        return jsonify(ok=True)
+
+    @app.route("/clip/<int:aid>/<int:i>.jpg")
+    def clip_frame(aid, i):
+        path = os.path.join(snap_dir, "clips", str(aid))
+        name = "%03d.jpg" % i
+        if not os.path.isfile(os.path.join(path, name)):
+            abort(404)
+        resp = send_from_directory(path, name, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "max-age=3600"
+        return resp
 
     # ------------------------------------------------------------ for the browser
     def _preview_meta():
@@ -360,10 +395,18 @@ def main():
     targets = os.environ.get("GS_BEACON_TARGETS",
                              "255.255.255.255,10.42.0.255,192.168.55.255").split(",")
     beacon_port = int(os.environ.get("GS_BEACON_PORT", str(DEFAULT_BEACON_PORT)))
-    app = create_app(data_dir, link_key=os.environ.get("GS_LINK_KEY", ""))
+    key = os.environ.get("GS_LINK_KEY", "").strip()
+    if not key:                                   # same .link_key file the drone reads
+        try:
+            with open(os.path.join(os.path.dirname(BASE), ".link_key")) as f:
+                key = f.readline().strip()
+        except OSError:
+            key = ""
+    app = create_app(data_dir, link_key=key)
     Beacon(port, targets, beacon_port=beacon_port).start()
     print("Ground station on http://localhost:%d  (host %s, %s)" % (port, socket.gethostname(), host))
     print("Beacon: UDP %d -> %s" % (beacon_port, ", ".join(targets)))
+    print("Link key: %s" % ("ON (drones must send the same key)" if key else "off (any drone accepted)"))
     app.run(host=host, port=port, debug=False, threaded=True)
 
 

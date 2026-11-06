@@ -16,7 +16,9 @@ def _env_bool(name, default):
 SOURCE = os.environ.get("EDGE_SOURCE", "data/mixed_test.mp4")
 if SOURCE.isdigit():
     SOURCE = int(SOURCE)
-SAMPLE_INTERVAL_SEC = 0.5      # pull one frame every 0.5 s
+# Seconds between frames the pipeline looks at. 0.5 = 2 per second (lowest power).
+# EDGE_SAMPLE_SEC=0.25 reacts about twice as fast; 0.2 is the floor for the Nano.
+SAMPLE_INTERVAL_SEC = max(0.2, float(os.environ.get("EDGE_SAMPLE_SEC", "0.5")))
 FRAME_WIDTH = 640              # resize for speed on Jetson
 FRAME_HEIGHT = 360
 
@@ -43,6 +45,7 @@ DIFF_FRACTION = 0.15              # flag if >15% of pixels changed
 # Camera-motion compensation: align the previous frame to the current one before
 # differencing, so drone movement itself does not count as "change".
 MOTION_COMPENSATION = _env_bool("EDGE_MOTION_COMP", True)
+MOTION_BASELINE_SEC = 0.5        # motion = change vs the frame this long ago
 MOTION_MIN_FEATURES = 20          # fewer tracked corners than this -> skip alignment
 
 # --- Stage 2 ---
@@ -74,14 +77,42 @@ DRONE_SPEED_MPS = 5.0          # simulated ground speed, metres per second
 DB_PATH = os.environ.get("EDGE_DB_PATH", "data/alerts.db")
 # "auto" = find the ground station by its UDP beacon; or a fixed "http://host:port"
 SERVER_URL = os.environ.get("EDGE_SERVER_URL", "auto")
-ALERT_COOLDOWN_SEC = 10        # same alert type stays quiet this long after firing
+# One alert per EVENT: while the same type keeps being seen (gaps shorter than
+# EVENT_GAP_SEC) no new alert is made, except one every ALERT_REPEAT_SEC with a fresh
+# photo and position for long events (a big fire seen while the drone flies on).
+EVENT_GAP_SEC = float(os.environ.get("EDGE_EVENT_GAP_SEC", "30"))
+ALERT_REPEAT_SEC = float(os.environ.get("EDGE_ALERT_REPEAT_SEC", "60"))
 PERSON_ALERT_CONF = 0.5        # people need higher confidence than fire/smoke
 SNAPSHOT_DIR = "data/snapshots"
+# Alert clips: frames from CLIP_BEFORE_SEC before to CLIP_AFTER_SEC after an alert.
+# Small on purpose (Nano RAM, SD card, weak radio links). EDGE_CLIPS=0 turns them off.
+CLIPS = _env_bool("EDGE_CLIPS", True)
+CLIP_DIR = "data/clips"
+CLIP_BEFORE_SEC = 4.0
+CLIP_AFTER_SEC = 4.0
+CLIP_WIDTH = 480
+CLIP_QUALITY = 65
+CLIP_KEEP = 200                # newest clips kept on the drone (~0.4 MB each)
 FORWARD_CONNECT_TIMEOUT = 1.0  # short, so a dead link does not stall the link thread
 
 # --- Live link to the ground station (link.py) ---
 DRONE_ID = os.environ.get("EDGE_DRONE_ID", socket.gethostname())
-LINK_KEY = os.environ.get("EDGE_LINK_KEY", "")      # must match GS_LINK_KEY if the station sets one
+# Shared secret between drone and ground station: EDGE_LINK_KEY, else the first line of
+# <repo>/.link_key (git-ignored; the same file on the laptop and the Nano). Empty = off.
+LINK_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".link_key")
+
+
+def read_link_key(path=None):
+    if os.environ.get("EDGE_LINK_KEY"):
+        return os.environ["EDGE_LINK_KEY"].strip()
+    try:
+        with open(path or LINK_KEY_FILE) as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+LINK_KEY = read_link_key()
 DISCOVERY_PORT = 5005                               # UDP beacon port of the ground station
 TELEMETRY_INTERVAL_SEC = 1.0
 # 1.5 s suits a weak radio link. On the USB cable or a strong hotspot use e.g.

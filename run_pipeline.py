@@ -10,6 +10,7 @@ import numpy as np
 
 import config
 from alert_store import AlertStore
+from clip_recorder import ClipRecorder
 from frame_source import FrameSource
 from gps_source import make_gps
 from link import DroneLink, LinkState, StationFinder
@@ -24,6 +25,7 @@ _t0 = time.time()
 det.detect(np.zeros((config.FRAME_HEIGHT, config.FRAME_WIDTH, 3), np.uint8))
 print("[stage2] models ready (warm-up %.1f s)" % (time.time() - _t0))
 sched = Stage2Scheduler()
+clips = ClipRecorder() if config.CLIPS else None
 state = LinkState()
 finder = StationFinder(fixed_url=None if config.SERVER_URL == "auto" else config.SERVER_URL)
 link = DroneLink(state, gps, finder, stats=SystemStats()).start()
@@ -44,6 +46,9 @@ try:
         t0 = ts if t0 is None else t0
         t = ts - t0
         total += 1
+        if clips:
+            for aid, path, n, fps in clips.push(t, frame):
+                store.set_clip(aid, path, n, fps)
 
         r = gate.check(frame)
         if not sched.should_run(r["trigger"]):
@@ -65,11 +70,16 @@ try:
         for d in best.values():
             alert_id = store.maybe_add(d, frame, t, lat, lon)
             if alert_id:
+                if clips:
+                    clips.request(alert_id, t)
                 print(f"ALERT #{alert_id}  t={t:5.1f}s  {d['type']:<6} conf={d['conf']:.2f}  "
                       f"lat={lat:.6f} lon={lon:.6f}")   # nan = no GPS fix yet
 except KeyboardInterrupt:
     print("\n[stop] stopping, flushing alerts")
 finally:
+    if clips:
+        for aid, path, n, fps in clips.flush():      # clips cut short by the stop
+            store.set_clip(aid, path, n, fps)
     link.stop()
 
 counts = store.counts()

@@ -9,6 +9,7 @@ Channels, each on its own timer with backoff (1/2/4/8 s) when the station is unr
   telemetry  every TELEMETRY_INTERVAL_SEC   POST /api/telemetry  (latest wins, never queued)
   preview    every PREVIEW_INTERVAL_SEC     POST /api/preview    (latest wins, never queued)
   alerts     every ALERT_FORWARD_INTERVAL_SEC  POST /alert       (store-and-forward, never lost)
+             then one finished clip per round  POST /api/clip    (after its alert)
 Python 3.8 compatible (runs in the JetPack 4 container).
 """
 import json
@@ -296,6 +297,7 @@ class DroneLink:
         self._counts = store.counts()
         if left:
             raise RuntimeError("%d alert(s) still buffered" % left)
+        store.forward_clips(url, self._headers())     # clips only after every alert is through
 
     # ---- thread
     def _run(self):

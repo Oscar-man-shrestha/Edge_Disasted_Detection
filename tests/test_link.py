@@ -221,3 +221,30 @@ def test_preview_interval_from_env(monkeypatch):
         monkeypatch.delenv("EDGE_PREVIEW_SEC")
         importlib.reload(config)
     assert config.PREVIEW_INTERVAL_SEC == 1.5
+
+
+def test_link_key_from_env_then_file(tmp_path, monkeypatch):
+    import importlib
+    key = tmp_path / ".link_key"
+    key.write_text("  s3cret\n")
+    monkeypatch.setattr(config, "LINK_KEY_FILE", str(key))
+    monkeypatch.delenv("EDGE_LINK_KEY", raising=False)
+    assert config.read_link_key() == "s3cret"
+    monkeypatch.setenv("EDGE_LINK_KEY", "fromenv")
+    assert config.read_link_key() == "fromenv"
+    monkeypatch.delenv("EDGE_LINK_KEY")
+    key.unlink()
+    assert config.read_link_key() == ""
+
+
+def test_sample_interval_from_env(monkeypatch):
+    import importlib
+    try:
+        monkeypatch.setenv("EDGE_SAMPLE_SEC", "0.25")
+        assert importlib.reload(config).SAMPLE_INTERVAL_SEC == 0.25
+        monkeypatch.setenv("EDGE_SAMPLE_SEC", "0.01")             # floor: protect the Nano
+        assert importlib.reload(config).SAMPLE_INTERVAL_SEC == 0.2
+    finally:
+        monkeypatch.delenv("EDGE_SAMPLE_SEC", raising=False)
+        importlib.reload(config)
+    assert config.SAMPLE_INTERVAL_SEC == 0.5

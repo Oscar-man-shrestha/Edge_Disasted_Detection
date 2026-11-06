@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Toaster } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { alert, state } from "../fixtures/data";
@@ -50,5 +50,29 @@ describe("alert workflow", () => {
     expect(container.querySelectorAll("li")).toHaveLength(200);
     fireEvent.click(screen.getByText(/show more/i));
     expect(container.querySelectorAll("li")).toHaveLength(400);
+  });
+});
+
+describe("alert clip", () => {
+  it("no clip: no Photo/Clip switch", () => {
+    render(<AlertDetail alert={alert(5)} onBack={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Clip/ })).toBeNull();
+  });
+
+  it("clip plays through its frames and can be paused", () => {
+    vi.useFakeTimers();
+    try {
+      render(<AlertDetail alert={alert(6, { clip_frames: 4, clip_fps: 2 })} onBack={() => {}} />);
+      expect(screen.getByRole("img", { name: /snapshot/ })).toBeInTheDocument();     // photo first
+      fireEvent.click(screen.getByRole("button", { name: /Clip \(2 s\)/ }));
+      const frame = () => (screen.getByRole("img", { name: /clip frame/ }) as HTMLImageElement).getAttribute("src");
+      expect(frame()).toBe("/clip/6/0.jpg");
+      act(() => { vi.advanceTimersByTime(1000); });                                 // 2 fps -> 2 frames
+      expect(frame()).toBe("/clip/6/2.jpg");
+      fireEvent.click(screen.getByRole("button", { name: "Pause clip" }));
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(frame()).toBe("/clip/6/2.jpg");
+      expect(screen.getByText("3/4")).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
   });
 });

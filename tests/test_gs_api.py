@@ -274,3 +274,39 @@ def test_default_port_avoids_macos_airplay():
     """macOS AirPlay Receiver owns port 5000 (answers 403 AirTunes), so the station defaults to 5050."""
     import app as station
     assert station.DEFAULT_PORT == 5050
+
+
+def post_clip(client, alert_id="1", wall_time="w1", n=3, headers=None):
+    files = [(io.BytesIO(jpeg()), "%03d.jpg" % i) for i in range(n)]
+    return client.post("/api/clip", headers=headers or {}, content_type="multipart/form-data",
+                       data={"alert_id": alert_id, "drone_id": "nano", "wall_time": wall_time,
+                             "fps": "2.0", "frames": files})
+
+
+def test_clip_stored_served_and_announced(client):
+    assert post_alert(client).status_code == 200
+    r = post_clip(client)
+    assert r.status_code == 200
+    a = client.get("/api/state").get_json()["alerts"][0]
+    assert a["clip_frames"] == 3 and a["clip_fps"] == 2.0
+    got = client.get("/clip/%d/2.jpg" % a["id"])
+    assert got.status_code == 200 and got.data[:2] == b"\xff\xd8"
+    assert client.get("/clip/%d/3.jpg" % a["id"]).status_code == 404
+    assert post_clip(client, n=2).status_code == 200                 # resend replaces, no leftovers
+    a = client.get("/api/state").get_json()["alerts"][0]
+    assert a["clip_frames"] == 2 and client.get("/clip/%d/2.jpg" % a["id"]).status_code == 404
+
+
+def test_clip_for_unknown_alert_404_and_limits(client):
+    assert post_clip(client).status_code == 404
+    assert post_alert(client).status_code == 200
+    assert post_clip(client, n=0).status_code == 400
+    assert post_clip(client, n=121).status_code == 400
+
+
+def test_clip_needs_link_key(tmp_path):
+    c = create_app(str(tmp_path / "k"), link_key="k").test_client()
+    ok = {"X-Link-Key": "k"}
+    assert post_alert(c, headers=ok).status_code == 200
+    assert post_clip(c).status_code == 401
+    assert post_clip(c, headers=ok).status_code == 200

@@ -1,4 +1,5 @@
 import time
+from collections import deque
 import cv2
 import numpy as np
 import config
@@ -17,6 +18,10 @@ class Stage1Gate:
 
     def __init__(self, motion_compensation=None):
         self.prev_gray = None
+        # Compare against the frame ~MOTION_BASELINE_SEC ago, not simply the previous one,
+        # so motion sensitivity stays the same when frames are sampled faster.
+        n = max(1, int(round(config.MOTION_BASELINE_SEC / config.SAMPLE_INTERVAL_SEC)))
+        self._history = deque(maxlen=n)
         self.streak = 0
         self.lower = np.array(config.FIRE_HSV_LOWER)
         self.upper = np.array(config.FIRE_HSV_UPPER)
@@ -81,7 +86,8 @@ class Stage1Gate:
         # Signal 2: change vs previous sampled frame (motion-compensated if enabled)
         gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)
         diff_frac, aligned = self._diff_fraction(gray)
-        self.prev_gray = gray
+        self._history.append(gray)
+        self.prev_gray = self._history[0]
 
         flagged = (fire_frac >= config.FIRE_PIXEL_FRACTION) or (diff_frac >= config.DIFF_FRACTION)
         self.streak = self.streak + 1 if flagged else 0
