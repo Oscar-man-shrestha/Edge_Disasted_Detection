@@ -383,3 +383,14 @@ Result: pins **0.7 px** max error at rest, **0 px during a mouse drag**, drone 0
   replay**. This made an e2e test fail on some runs and pass on others. Now the right end of the slider is the
   real end. Unit test added (failed before, passes after); replay e2e passed 3/3 on repeat.
 - Tests: **94 UI unit, 11/11 e2e, 131 Python**. One drone for now; nothing assumes more.
+
+### 26. Simulated patrol flight ✅
+The simulated GPS used to fly its 3-waypoint route once (~1–2 min) and then **park at the last point**, so after
+an hour the drone stood still and every alert stacked at one spot.
+- New `data/survey_path.csv`: 6 north-south survey lanes over the park (300 m long, 40 m apart), 2.2 km a lap,
+  7.3 min at 5 m/s; closes along the bottom edge (no diagonal jump).
+- `EDGE_SIM_LOOP=1` patrols it forever (`EDGE_SIM_PATH`, `EDGE_SIM_SPEED` also settable). Default unchanged.
+- On the Nano (in `/etc/default/edge-drone`): `EDGE_SIM_PATH=data/survey_path.csv`, `EDGE_SIM_LOOP=1`.
+- Verified live: **76 m in 15 s, 5 m/s, heading 0° up the first lane**; dashboard shows the quadcopter flying.
+  Camera + AI stay real: detections are tagged with the drone's simulated position along the route.
+- Note: the track from before the switch still shows the old route; start a **New mission** for a clean map.
