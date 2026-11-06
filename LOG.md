@@ -440,3 +440,19 @@ On in `/etc/default/edge-drone` (`EDGE_TILES=2`; remove the line to turn it off)
 - Cost: avg power **3.05 W** (was 2.9), 33.5 °C, frames checked 3.75 → **2.7 /s**.
 - The room (~6 m) is shorter than the new range, so the gain shows as higher confidence, not a new maximum.
   **Maximum range still to be measured outdoors** (estimate ~35 m side-on with tiles vs ~20 m without).
+
+### 30. Fire/smoke tiling + every detected type in telemetry
+- Room test: a laptop fire video was detected at ~1 m (~80 %) and ~3–4 m (~70 %), **missed at ~6 m** (flames ~25 cm
+  wide become too small). The person in red behind the desk was a real person, not a false alarm.
+- `EDGE_TILE_FIRE` (default on when `EDGE_TILES>=2`): the fire/smoke model also checks the full-resolution tiles.
+  Nano: Stage 2 546 → **791 ms**, 4.0 W while busy; live ~2.2 frames checked/s.
+- Telemetry `pipeline.detections` = strongest detection of each type (a person no longer hides a fire);
+  the dashboard camera card shows them as chips ("person 90%", "fire 72%").
+- The 6 m fire re-test with fire tiling was **not done** (testing stopped here).
+
+### 31. Wipe before handover
+All recorded data deleted on purpose: station database + alert photos + clips (Mac), alerts.db + snapshots + clips
++ run logs (Nano), demo-drone recordings, browser-test results, all scratch files. Kept: map tile cache,
+`data/flight_path.csv`, `data/survey_path.csv`. A test was writing clips into the real `data/clips/` → fixed
+(`tests/conftest.py`). The Nano's system journal still has text log lines (no images); clear with
+`sudo journalctl --vacuum-time=1s` if wanted.
