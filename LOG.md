@@ -349,3 +349,14 @@ never stop the service). Re-installed with `sudo jetson/install_service.sh`. Ver
 - All animation is CSS in the browser and switches off with the OS "reduce motion" setting.
 - Checked with headless Chromium at 1440x900 in dark and light: 0 console errors. 70/70 UI tests pass
   (one test updated on purpose: the dark map is now dimmer *and* desaturated).
+
+### 23. Map accuracy bugs (found by measuring, fixed)
+Measured with headless Chromium: each pin's on-screen centre vs `map.project()` of its real coordinates.
+
+| Bug | Cause | Fix |
+|---|---|---|
+| **Pins up to 300 px away from their real spot**, stacked in a column (alerts with the same position showed as a line of pins down the track) | `updateAlertElement` overwrote `className`, deleting MapLibre's `maplibregl-marker` class, so pins fell back to normal page layout (`position: static`). Existed before today. | only add/remove our own `gs-amark*` classes; unit test `markers.test.ts` (failed before, passes after) |
+| Pins **trailed behind the map** when dragging | my new CSS put a 0.15 s `transition` on the marker's `transform`, which MapLibre uses to position it | no transform/transition/position on marker roots |
+| Hovered pin could jump | `:hover { transform: scale }` replaced MapLibre's position | the icon inside the pin scales, not the pin |
+
+Result: pins **0.7 px** max error at rest, **0 px during a mouse drag**, drone 0.1 px, at zoom 14 and 16. 72/72 UI tests.

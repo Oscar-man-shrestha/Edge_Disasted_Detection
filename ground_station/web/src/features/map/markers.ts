@@ -51,8 +51,12 @@ export function alertElement(a: Alert, selected: boolean, onClick: (id: number) 
 }
 
 export function updateAlertElement(el: HTMLElement, a: Alert, selected: boolean, onClick: (id: number) => void): void {
-  const cls = `gs-amark gs-amark-${a.type} gs-amark-${a.status}${selected ? " gs-amark-selected" : ""}`;
-  if (el.className !== cls) el.className = cls;
+  // Only touch our own gs-amark* classes: MapLibre adds "maplibregl-marker ..." to the same
+  // element, and that class is what positions it at its coordinates (overwriting className
+  // dropped it, so pins fell back to normal layout and stacked up away from their spot).
+  const want = ["gs-amark", `gs-amark-${a.type}`, `gs-amark-${a.status}`, ...(selected ? ["gs-amark-selected"] : [])];
+  for (const c of [...el.classList]) if (c.startsWith("gs-amark") && !want.includes(c)) el.classList.remove(c);
+  for (const c of want) if (!el.classList.contains(c)) el.classList.add(c);
   if (el.dataset.type !== a.type) { el.dataset.type = a.type; el.innerHTML = iconSvg(a.type); }
   el.setAttribute("aria-label", `${a.type} alert ${a.id}, ${Math.round(a.conf * 100)} percent, ${a.status}`);
   el.onclick = (e) => { e.stopPropagation(); onClick(a.id); };
