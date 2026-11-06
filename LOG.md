@@ -360,3 +360,11 @@ Measured with headless Chromium: each pin's on-screen centre vs `map.project()` 
 | Hovered pin could jump | `:hover { transform: scale }` replaced MapLibre's position | the icon inside the pin scales, not the pin |
 
 Result: pins **0.7 px** max error at rest, **0 px during a mouse drag**, drone 0.1 px, at zoom 14 and 16. 72/72 UI tests.
+
+### 24. Full end-to-end check (real browser, real station, demo drone)
+`npx playwright test` (11 tests: live map, alerts workflow, follow mode, command palette, phone layout, offline).
+- First run: **2 failed**. Same tests on the code from before today **passed**, so it was caused today:
+  the hermetic test station found the repo's new `.link_key` and refused the tests' own unsigned alerts (401).
+- Fix: an **explicitly empty** `GS_LINK_KEY` / `EDGE_LINK_KEY` now means "key off" (unset still reads `.link_key`);
+  the e2e config sets `GS_LINK_KEY=""`. Test added.
+- Now: **11/11 e2e**, 72/72 UI unit, 131 Python tests pass.

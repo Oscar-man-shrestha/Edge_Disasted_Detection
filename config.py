@@ -103,7 +103,7 @@ LINK_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".link_
 
 
 def read_link_key(path=None):
-    if os.environ.get("EDGE_LINK_KEY"):
+    if "EDGE_LINK_KEY" in os.environ:           # set, even empty (= key off): wins over the file
         return os.environ["EDGE_LINK_KEY"].strip()
     try:
         with open(path or LINK_KEY_FILE) as f:

@@ -232,6 +232,8 @@ def test_link_key_from_env_then_file(tmp_path, monkeypatch):
     assert config.read_link_key() == "s3cret"
     monkeypatch.setenv("EDGE_LINK_KEY", "fromenv")
     assert config.read_link_key() == "fromenv"
+    monkeypatch.setenv("EDGE_LINK_KEY", "")                  # set but empty: key explicitly off
+    assert config.read_link_key() == ""
     monkeypatch.delenv("EDGE_LINK_KEY")
     key.unlink()
     assert config.read_link_key() == ""

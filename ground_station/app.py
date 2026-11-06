@@ -396,7 +396,8 @@ def main():
                              "255.255.255.255,10.42.0.255,192.168.55.255").split(",")
     beacon_port = int(os.environ.get("GS_BEACON_PORT", str(DEFAULT_BEACON_PORT)))
     key = os.environ.get("GS_LINK_KEY", "").strip()
-    if not key:                                   # same .link_key file the drone reads
+    if "GS_LINK_KEY" not in os.environ:           # unset: same .link_key file the drone reads
+                                                  # (set but empty = key explicitly off)
         try:
             with open(os.path.join(os.path.dirname(BASE), ".link_key")) as f:
                 key = f.readline().strip()
