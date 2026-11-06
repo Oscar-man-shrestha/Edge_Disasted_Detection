@@ -429,3 +429,14 @@ at a wall ~1 m away, low on the desk, so nothing farther than an arm was ever in
   reliable range side-on is **~20 m** (more with 1280 px tiling or a narrower lens). Not yet measured outdoors.
 - Cost of the scan: power avg **2.9 W** (peak 3.85 W) vs 2.4–2.6 W before; **33.5 °C**. YOLO now runs ~0.7×/s.
 - Lesson: aim the camera at open space at about chest height when testing.
+
+### 29. Tiled person detection (longer range), `EDGE_TILES=2`
+The person model also checks 2 overlapping tiles of the full 1280×720 camera frame (a far person is ~1.8× bigger
+than in the 640 px frame); duplicates from whole frame / tiles / seams are merged. Fire/smoke unchanged.
+On in `/etc/default/edge-drone` (`EDGE_TILES=2`; remove the line to turn it off). Tests: 149 Python.
+- Nano bench (TensorRT, live camera frame): Stage 2 **263 → 556 ms**; power while busy 4.0 W either way.
+- Live room test (14:18–14:21): far wall / door ~5–6 m **84–92 %** (was 76–85 %), middle 87–94 %, close 90–96 %.
+  Also found two other people partly behind the table, and the fire video.
+- Cost: avg power **3.05 W** (was 2.9), 33.5 °C, frames checked 3.75 → **2.7 /s**.
+- The room (~6 m) is shorter than the new range, so the gain shows as higher confidence, not a new maximum.
+  **Maximum range still to be measured outdoors** (estimate ~35 m side-on with tiles vs ~20 m without).
