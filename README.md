@@ -104,3 +104,6 @@ See the "Still open" table in [PROJECT_STATUS.md](PROJECT_STATUS.md).
   FASDD dataset; CC-BY-4.0). Weights are not redistributed here.
 - Ultralytics YOLO is AGPL-3.0. Check the implications before distributing this project.
 - Test footage was stock video and is not included.
+
+
+# Edge_Disasted_Detection

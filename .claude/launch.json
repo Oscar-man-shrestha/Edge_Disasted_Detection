@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ground-station-demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "GS_PORT=5055",
+        "GS_HOST=127.0.0.1",
+        "GS_DATA_DIR=/private/tmp/claude-501/-Users-oscar-Edge-Disasted-Detection-Project/e5999d3a-6fbd-4b97-a0ea-b52318282de2/scratchpad/gs_demo",
+        "GS_BEACON_TARGETS=127.0.0.1",
+        "/private/tmp/claude-501/-Users-oscar-Edge-Disasted-Detection-Project/e5999d3a-6fbd-4b97-a0ea-b52318282de2/scratchpad/venv/bin/python",
+        "ground_station/app.py"
+      ],
+      "port": 5055
+    }
+  ]
+}
